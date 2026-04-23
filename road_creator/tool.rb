@@ -19,15 +19,14 @@ module RogerioPenna
       end
 
       def getBounds
+        view = Sketchup.active_model.active_view
         bounds = Geom::BoundingBox.new
         if @nodes.empty?
           bounds.add([0,0,0])
         else
           @nodes.each { |n| bounds.add(n.pos); bounds.add(n.left_h); bounds.add(n.right_h) }
-          # Infla o box para garantir que o SketchUp renderize o preview em qualquer angulo
-          pmin = bounds.min; pmax = bounds.max
-          bounds.add(pmin.offset([-50.m, -50.m, -50.m]))
-          bounds.add(pmax.offset([50.m, 50.m, 50.m]))
+          # Bounding box simples e estável
+          bounds.inflate(5.m)
         end
         bounds
       end
@@ -66,15 +65,18 @@ module RogerioPenna
 
         edges.each_cons(2) do |e1, e2|
           begin
-            # ORDEM INVERTIDA para garantir faces para cima (Counter-Clockwise)
             # Lane Esquerda
-            entities.add_face(e1[:center], e1[:l_lane], e2[:l_lane], e2[:center])
+            f = entities.add_face(e1[:center], e2[:center], e2[:l_lane], e1[:l_lane])
+            f.reverse! if f.normal.dot(Z_AXIS) < 0
             # Lane Direita
-            entities.add_face(e1[:center], e2[:center], e2[:r_lane], e1[:r_lane])
+            f = entities.add_face(e1[:center], e1[:r_lane], e2[:r_lane], e2[:center])
+            f.reverse! if f.normal.dot(Z_AXIS) < 0
             # SW Esquerda
-            entities.add_face(e1[:l_lane], e1[:l_sw], e2[:l_sw], e2[:l_lane])
+            f = entities.add_face(e1[:l_lane], e2[:l_lane], e2[:l_sw], e1[:l_sw])
+            f.reverse! if f.normal.dot(Z_AXIS) < 0
             # SW Direita
-            entities.add_face(e1[:r_lane], e2[:r_lane], e2[:r_sw], e1[:r_sw])
+            f = entities.add_face(e1[:r_lane], e1[:r_sw], e2[:r_sw], e2[:r_lane])
+            f.reverse! if f.normal.dot(Z_AXIS) < 0
           rescue
             next
           end
@@ -126,40 +128,50 @@ module RogerioPenna
       def draw(view)
         begin
           return if @nodes.empty?
+          
           all_data = []
           @nodes.each_cons(2) { |n1, n2| all_data.concat(Geometry.generate_bezier_path(n1, n2, SUBDIV_SEGMENTS)[0...-1]) }
           last = @nodes.last; all_data << {pos: last.pos, ll: last.lane_l, lr: last.lane_r, sl: last.sw_l, sr: last.sw_r}
 
           if all_data.size >= 2
             edges = Geometry.calculate_all_edges(all_data)
-            z_f = Geom::Vector3d.new(0, 0, 2.mm)
-            z_l = Geom::Vector3d.new(0, 0, 3.mm)
-            
-            # Coleta todos os pontos para desenhar em blocos (mais estavel)
-            pts_lane = []; pts_sw = []; pts_wires = []
+            # Offset fixo para 3D
+            z_f = Geom::Vector3d.new(0, 0, 10.mm)
+            z_l = Geom::Vector3d.new(0, 0, 11.mm)
             
             edges.each_cons(2) do |e1, e2|
-              # Faces
-              pts_lane.concat([e1[:l_lane].offset(z_f), e2[:l_lane].offset(z_f), e2[:r_lane].offset(z_f), e1[:r_lane].offset(z_f)])
-              pts_sw.concat([e1[:l_sw].offset(z_f), e2[:l_sw].offset(z_f), e2[:l_lane].offset(z_f), e1[:l_lane].offset(z_f)])
-              pts_sw.concat([e1[:r_lane].offset(z_f), e2[:r_lane].offset(z_f), e2[:r_sw].offset(z_f), e1[:r_sw].offset(z_f)])
+              # Lane (Alpha 254 força o pipeline de transparência que costuma ignorar bugs de scissor do driver)
+              p1, p2, p3, p4 = e1[:l_lane].offset(z_f), e1[:r_lane].offset(z_f), e2[:r_lane].offset(z_f), e2[:l_lane].offset(z_f)
+              view.drawing_color = [160, 160, 160, 254]
+              view.draw(GL_TRIANGLES, [p1, p2, p3, p1, p3, p4])
+              
+              # SW Esquerda
+              p1, p2, p3, p4 = e1[:l_sw].offset(z_f), e1[:l_lane].offset(z_f), e2[:l_lane].offset(z_f), e2[:l_sw].offset(z_f)
+              view.drawing_color = [210, 210, 210, 254]
+              view.draw(GL_TRIANGLES, [p1, p2, p3, p1, p3, p4])
+
+              # SW Direita
+              p1, p2, p3, p4 = e1[:r_lane].offset(z_f), e1[:r_sw].offset(z_f), e2[:r_sw].offset(z_f), e2[:r_lane].offset(z_f)
+              view.drawing_color = [210, 210, 210, 254]
+              view.draw(GL_TRIANGLES, [p1, p2, p3, p1, p3, p4])
               
               # Wires
+              view.drawing_color = [0, 0, 0, 254]; view.line_width = 1
               l1, l2 = e1[:l_sw].offset(z_l), e2[:l_sw].offset(z_l)
               r1, r2 = e1[:r_sw].offset(z_l), e2[:r_sw].offset(z_l)
-              pts_wires.concat([l1, l2, r1, r2, l1, r1])
+              view.draw(GL_LINES, [l1, l2, r1, r2, l1, r1])
             end
-            pts_wires.concat([edges.last[:l_sw].offset(z_l), edges.last[:r_sw].offset(z_l)])
-
-            # Desenha Blocos
-            view.drawing_color = [160, 160, 160]; view.draw(GL_QUADS, pts_lane)
-            view.drawing_color = [210, 210, 210]; view.draw(GL_QUADS, pts_sw)
-            view.drawing_color = "black"; view.line_width = 1; view.draw(GL_LINES, pts_wires)
+            
+            # Fechamento final das wires
+            last_e = edges.last
+            view.draw(GL_LINES, [last_e[:l_sw].offset(z_l), last_e[:r_sw].offset(z_l)])
           end
 
           # UI Controls
           @nodes.each_with_index do |n, i|
-            view.drawing_color = "gray"; view.draw(GL_LINES, [n.left_h, n.pos, n.pos, n.right_h])
+            view.drawing_color = [128, 128, 128, 254]; view.line_width = 1
+            view.draw(GL_LINES, [n.left_h, n.pos, n.pos, n.right_h])
+            
             view.draw_points([n.pos], 14, 4, (i == @selected_idx ? "yellow" : "blue"))
             view.draw_points([n.left_h, n.right_h], 10, 2, "cyan")
           end
