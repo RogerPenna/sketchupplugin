@@ -23,8 +23,8 @@ export class ImportLoaders {
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
     const page = await pdf.getPage(1);
     
-    // Higher scale (3.0) for better contrast/sharpness
-    const viewport = page.getViewport({ scale: 3.0 });
+    // Extreme high quality (4.0)
+    const viewport = page.getViewport({ scale: 4.0 });
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
     canvas.height = viewport.height;
@@ -32,25 +32,38 @@ export class ImportLoaders {
 
     if (!context) throw new Error("Could not create canvas context");
     
-    // Ensure white background for contrast
-    context.fillStyle = 'white';
+    // Background branco ABSOLUTO
+    context.fillStyle = '#ffffff';
     context.fillRect(0, 0, canvas.width, canvas.height);
     
     await page.render({ canvasContext: context, viewport }).promise;
     
+    // Hard Contrast Boost
+    const imgData = context.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imgData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      const brightness = (data[i] + data[i+1] + data[i+2]) / 3;
+      if (brightness > 230) {
+        // Force pure white
+        data[i] = 255; data[i+1] = 255; data[i+2] = 255;
+      } else {
+        // Force dark black
+        data[i] *= 0.3; data[i+1] *= 0.3; data[i+2] *= 0.3;
+      }
+    }
+    context.putImageData(imgData, 0, 0);
+
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
-    texture.minFilter = THREE.LinearMipmapLinearFilter; // Better minification
-    texture.magFilter = THREE.LinearFilter;
-    texture.generateMipmaps = true;
     texture.anisotropy = 16;
+    texture.generateMipmaps = true;
     
     return {
       id: Math.random().toString(36).substr(2, 9),
       name: file.name,
       type: 'pdf',
       visible: true,
-      position: new THREE.Vector3(0, 0, 0.05), // Higher base Z
+      position: new THREE.Vector3(0, 0, 0.01), 
       scale: 1,
       rotation: 0,
       content: texture,
@@ -64,7 +77,7 @@ export class ImportLoaders {
     const dxf = parser.parseSync(text);
     
     const group = new THREE.Group();
-    const material = new THREE.LineBasicMaterial({ color: 0x666666 });
+    const material = new THREE.LineBasicMaterial({ color: 0x000000 }); // Pure black for DXF
 
     if (dxf && dxf.entities) {
       dxf.entities.forEach((entity: any) => {
@@ -78,7 +91,7 @@ export class ImportLoaders {
           group.add(line);
         } else if (entity.type === 'LWPOLYLINE' || entity.type === 'POLYLINE') {
           const points = entity.vertices.map((v: any) => new THREE.Vector3(v.x, v.y, 0));
-          if (entity.shape) points.push(points[0]); // close loop
+          if (entity.shape) points.push(points[0]); 
           const geometry = new THREE.BufferGeometry().setFromPoints(points);
           const line = new THREE.Line(geometry, material);
           group.add(line);
@@ -108,7 +121,7 @@ export class ImportLoaders {
       name: file.name,
       type: 'dxf',
       visible: true,
-      position: new THREE.Vector3(0, 0, 0.002),
+      position: new THREE.Vector3(0, 0, 0.02),
       scale: 1,
       rotation: 0,
       content: group

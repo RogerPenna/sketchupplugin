@@ -8,6 +8,7 @@ export interface NodeData {
   lane_r: number;
   sw_l: number;
   sw_r: number;
+  isCurved?: boolean; // Defines the segment leading into this node (from index-1 to index)
 }
 
 export interface PathPoint {
