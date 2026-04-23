@@ -16,13 +16,7 @@ const GRID_SECTION_COLOR = '#a0c4d1'
 type InteractionMode = 'idle' | 'adding_node' | 'calibrate_origin' | 'calibrate_scale_p1' | 'calibrate_scale_p2';
 
 function DragHandle({ direction, color, nodePos, onUpdate, onStart, onEnd, onSelect }: { 
-  direction: THREE.Vector3, 
-  color: string, 
-  nodePos: THREE.Vector3,
-  onUpdate: (newPos: THREE.Vector3) => void,
-  onStart: () => void,
-  onEnd: () => void,
-  onSelect: () => void
+  direction: THREE.Vector3, color: string, nodePos: THREE.Vector3, onUpdate: (newPos: THREE.Vector3) => void, onStart: () => void, onEnd: () => void, onSelect: () => void
 }) {
   const { camera, raycaster } = useThree();
   const [hovered, setHovered] = useState(false);
@@ -71,17 +65,15 @@ function DragHandle({ direction, color, nodePos, onUpdate, onStart, onEnd, onSel
 
   return (
     <group position={[offset.x, offset.y, offset.z]} quaternion={quat} onPointerOver={(e) => { e.stopPropagation(); setHovered(true); }} onPointerOut={() => setHovered(false)} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onClick={(e) => e.stopPropagation()} >
-      <mesh>
+      <mesh renderOrder={10}>
         <coneGeometry args={[0.2, 0.5, 16]} />
         <meshStandardMaterial color={color} transparent opacity={hovered ? 0.9 : 0.4} depthTest={false} />
       </mesh>
-      <mesh position={[0, -0.4, 0]}>
+      <mesh position={[0, -0.4, 0]} renderOrder={10}>
         <cylinderGeometry args={[0.05, 0.05, 0.4, 16]} />
         <meshStandardMaterial color={color} transparent opacity={hovered ? 0.9 : 0.4} depthTest={false} />
       </mesh>
-      <mesh visible={false}>
-        <sphereGeometry args={[0.8]} />
-      </mesh>
+      <mesh visible={false}><sphereGeometry args={[0.8]} /></mesh>
     </group>
   );
 }
@@ -96,17 +88,17 @@ function Node({ data, onChange, onSelect, isSelected, orbitControlsRef }: {
   const toggleOrbit = (active: boolean) => { if (orbitControlsRef.current) orbitControlsRef.current.enabled = !active; };
 
   return (
-    <group position={[data.pos.x, data.pos.y, data.pos.z]}>
+    <group position={[data.pos.x, data.pos.y, data.pos.z]} renderOrder={5}>
       <mesh onClick={(e) => { e.stopPropagation(); onSelect(); }}>
         <sphereGeometry args={[0.3, 32, 32]} />
-        <meshStandardMaterial color={isSelected ? "yellow" : "#2222ff"} emissive={isSelected ? "yellow" : "black"} emissiveIntensity={0.5} />
+        <meshStandardMaterial color={isSelected ? "yellow" : "#2222ff"} emissive={isSelected ? "yellow" : "black"} emissiveIntensity={0.5} depthTest={false} />
       </mesh>
       {showElevationLine && !isNaN(data.pos.x) && !isNaN(data.pos.y) && !isNaN(data.pos.z) && (
         <group position={[-data.pos.x, -data.pos.y, -data.pos.z]}>
           <Line points={[[data.pos.x, data.pos.y, 0], [data.pos.x, data.pos.y, data.pos.z]]} color="#666" lineWidth={1} dashed dashSize={0.2} gapSize={0.2} transparent opacity={0.6} />
-          <mesh position={[data.pos.x, data.pos.y, 0.01]}>
+          <mesh position={[data.pos.x, data.pos.y, 0.05]}>
             <ringGeometry args={[0.25, 0.35, 32]} />
-            <meshBasicMaterial color="#444" opacity={0.8} transparent side={THREE.DoubleSide} />
+            <meshBasicMaterial color="#444" opacity={0.8} transparent side={THREE.DoubleSide} depthTest={false} />
           </mesh>
         </group>
       )}
@@ -132,19 +124,19 @@ function Segment({ start, end, isSelected, onSelect }: { start: THREE.Vector3, e
   const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.clone().normalize());
 
   return (
-    <group>
+    <group renderOrder={4}>
       <line>
         <bufferGeometry attach="geometry">
-          <float32BufferAttribute attach="attributes-position" args={[new Float32Array([start.x, start.y, start.z + 0.01, end.x, end.y, end.z + 0.01]), 3]} />
+          <float32BufferAttribute attach="attributes-position" args={[new Float32Array([start.x, start.y, start.z + 0.1, end.x, end.y, end.z + 0.1]), 3]} />
         </bufferGeometry>
-        <lineBasicMaterial attach="material" color={isSelected ? "#ffeb3b" : "#444"} linewidth={isSelected ? 5 : 2} />
+        <lineBasicMaterial attach="material" color={isSelected ? "#ffeb3b" : "#444"} linewidth={isSelected ? 5 : 2} depthTest={false} />
       </line>
       <mesh position={midpoint} quaternion={quat} onClick={(e) => { e.stopPropagation(); onSelect(); }}>
         <cylinderGeometry args={[0.6, 0.6, length, 8]} />
         <meshBasicMaterial transparent opacity={0} />
       </mesh>
-      <Html position={[midpoint.x, midpoint.y, midpoint.z]} center style={{ pointerEvents: 'auto' }}>
-        <div onClick={(e) => { e.stopPropagation(); onSelect(); }} style={{ background: isSelected ? '#ffeb3b' : 'rgba(0, 0, 0, 0.75)', color: isSelected ? 'black' : 'white', padding: '4px 8px', borderRadius: '4px', fontSize: '11px', whiteSpace: 'nowrap', fontFamily: 'monospace', boxShadow: '0 2px 4px rgba(0,0,0,0.2)', border: isSelected ? '2px solid black' : '1px solid rgba(255,255,255,0.2)', fontWeight: isSelected ? 'bold' : 'normal', cursor: 'pointer', pointerEvents: 'auto' }}>
+      <Html position={[midpoint.x, midpoint.y, midpoint.z + 0.2]} center style={{ pointerEvents: 'auto' }}>
+        <div onClick={(e) => { e.stopPropagation(); onSelect(); }} style={{ background: isSelected ? '#ffeb3b' : 'rgba(0, 0, 0, 0.85)', color: isSelected ? 'black' : 'white', padding: '4px 8px', borderRadius: '4px', fontSize: '11px', whiteSpace: 'nowrap', fontFamily: 'monospace', boxShadow: '0 2px 10px rgba(0,0,0,0.3)', border: isSelected ? '2px solid black' : '1px solid rgba(255,255,255,0.2)', fontWeight: 'bold', cursor: 'pointer', pointerEvents: 'auto' }}>
           {length.toFixed(2)}m | {angle.toFixed(1)}°
         </div>
       </Html>
@@ -169,9 +161,7 @@ function LayerItem({ layer, onToggle, onDelete, onCalibrateOrigin, onCalibrateSc
 }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', background: '#f5f5f5', borderRadius: '6px', marginBottom: '4px' }}>
-      <div style={{ flex: 1, fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={layer.name}>
-        {layer.name}
-      </div>
+      <div style={{ flex: 1, fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={layer.name}>{layer.name}</div>
       <button onClick={onToggle} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem' }}>{layer.visible ? '👁️' : '🕶️'}</button>
       <button onClick={onCalibrateOrigin} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem' }} title="Set Origin">🎯</button>
       <button onClick={onCalibrateScale} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem' }} title="Set Scale">📏</button>
@@ -207,6 +197,9 @@ function App() {
       if (!file) return;
       try {
         const newLayer = type === 'pdf' ? await ImportLoaders.loadPDF(file) : await ImportLoaders.loadDXF(file);
+        if (newLayer.type === 'pdf' && newLayer.aspectRatio) {
+           newLayer.scale = 2.0; // Default minor axis ~20m (since plane is 10)
+        }
         setLayers(prev => [...prev, newLayer]);
       } catch (err) { console.error("Import error:", err); alert("Failed to import file."); }
     };
@@ -227,7 +220,6 @@ function App() {
       const clickPos = e.point.clone();
       setLayers(prev => prev.map(l => {
         if (l.id !== calibratingLayerId) return l;
-        // Shift layer so that clickPos becomes global origin
         const offset = new THREE.Vector3().subVectors(l.position, clickPos).setZ(l.position.z);
         return { ...l, position: offset };
       }));
@@ -270,7 +262,6 @@ function App() {
 
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative', color: '#333', background: 'white' }}>
-      {/* Interaction Help Overlay */}
       {interactionMode !== 'idle' && (
         <div style={{ position: 'absolute', top: 100, left: '50%', transform: 'translateX(-50%)', zIndex: 100, background: 'rgba(0,0,0,0.8)', color: 'white', padding: '10px 20px', borderRadius: '20px', pointerEvents: 'none' }}>
           {interactionMode === 'adding_node' && 'Click on ground to add node'}
@@ -328,14 +319,7 @@ function App() {
           </div>
           <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
             {layers.map(l => (
-              <LayerItem 
-                key={l.id} 
-                layer={l} 
-                onToggle={() => setLayers(prev => prev.map(ly => ly.id === l.id ? { ...ly, visible: !ly.visible } : ly))} 
-                onDelete={() => setLayers(prev => prev.filter(ly => ly.id !== l.id))}
-                onCalibrateOrigin={() => { setInteractionMode('calibrate_origin'); setCalibratingLayerId(l.id); }}
-                onCalibrateScale={() => { setInteractionMode('calibrate_scale_p1'); setCalibratingLayerId(l.id); }}
-              />
+              <LayerItem key={l.id} layer={l} onToggle={() => setLayers(prev => prev.map(ly => ly.id === l.id ? { ...ly, visible: !ly.visible } : ly))} onDelete={() => setLayers(prev => prev.filter(ly => ly.id !== l.id))} onCalibrateOrigin={() => { setInteractionMode('calibrate_origin'); setCalibratingLayerId(l.id); }} onCalibrateScale={() => { setInteractionMode('calibrate_scale_p1'); setCalibratingLayerId(l.id); }} />
             ))}
             {layers.length === 0 && <div style={{ textAlign: 'center', padding: '10px', color: '#999', fontSize: '0.8rem' }}>No layers imported</div>}
           </div>
@@ -346,17 +330,25 @@ function App() {
         <color attach="background" args={['white']} />
         {isPerspective ? ( <PerspectiveCamera makeDefault position={[30, -30, 30]} up={[0, 0, 1]} fov={45} /> ) : ( <OrthographicCamera makeDefault position={[0, 0, 50]} up={[0, 1, 0]} zoom={20} far={1000} near={-1000} /> )}
         <OrbitControls ref={orbitRef} makeDefault enableDamping={false} enableRotate={isPerspective} mouseButtons={{ LEFT: null, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN }} />
-        <ambientLight intensity={0.8} />
+        <ambientLight intensity={1.0} />
         <pointLight position={[50, 50, 50]} intensity={1.5} />
-        <Grid infiniteGrid fadeDistance={200} sectionSize={10} sectionThickness={1.5} sectionColor={GRID_SECTION_COLOR} cellSize={1} cellThickness={0.8} cellColor={GRID_COLOR} rotation={[Math.PI / 2, 0, 0]} />
         
-        {/* Layer Rendering */}
+        {/* Render Grid FIRST */}
+        <Grid position={[0, 0, -0.05]} infiniteGrid fadeDistance={400} sectionSize={10} sectionThickness={1.5} sectionColor={GRID_SECTION_COLOR} cellSize={1} cellThickness={0.8} cellColor={GRID_COLOR} rotation={[Math.PI / 2, 0, 0]} renderOrder={0} />
+        
         {layers.map(layer => (
-          <group key={layer.id} position={layer.position} scale={[layer.scale, layer.scale, 1]} visible={layer.visible}>
+          <group key={layer.id} position={layer.position} scale={[layer.scale, layer.scale, 1]} visible={layer.visible} renderOrder={1}>
             {layer.type === 'pdf' ? (
               <mesh rotation={[0, 0, 0]}>
                 <planeGeometry args={[10 * (layer.aspectRatio || 1), 10]} />
-                <meshBasicMaterial map={layer.content as THREE.Texture} transparent opacity={0.7} side={THREE.DoubleSide} />
+                <meshBasicMaterial 
+                   map={layer.content as THREE.Texture} 
+                   transparent 
+                   opacity={1.0} 
+                   side={THREE.DoubleSide}
+                   depthTest={false}
+                   depthWrite={false}
+                />
               </mesh>
             ) : (
               <primitive object={layer.content} />
@@ -364,19 +356,19 @@ function App() {
           </group>
         ))}
 
-        <mesh rotation={[0, 0, 0]} onClick={handleGroundClick}>
-          <planeGeometry args={[4000, 4000]} />
+        <mesh rotation={[0, 0, 0]} onClick={handleGroundClick} position={[0,0,-0.1]}>
+          <planeGeometry args={[8000, 8000]} />
           <meshBasicMaterial transparent opacity={0} />
         </mesh>
         
-        <group>
+        <group renderOrder={2}>
           <line>
-            <bufferGeometry attach="geometry" onUpdate={self => self.setFromPoints([new THREE.Vector3(-1000, 0, 0.005), new THREE.Vector3(1000, 0, 0.005)])} />
-            <lineBasicMaterial attach="material" color={X_COLOR} linewidth={2} />
+            <bufferGeometry attach="geometry" onUpdate={self => self.setFromPoints([new THREE.Vector3(-1000, 0, 0.05), new THREE.Vector3(1000, 0, 0.05)])} />
+            <lineBasicMaterial attach="material" color={X_COLOR} linewidth={2} depthTest={false} />
           </line>
           <line>
-            <bufferGeometry attach="geometry" onUpdate={self => self.setFromPoints([new THREE.Vector3(0, -1000, 0.005), new THREE.Vector3(0, 1000, 0.005)])} />
-            <lineBasicMaterial attach="material" color={Y_COLOR} linewidth={2} />
+            <bufferGeometry attach="geometry" onUpdate={self => self.setFromPoints([new THREE.Vector3(0, -1000, 0.05), new THREE.Vector3(0, 1000, 0.05)])} />
+            <lineBasicMaterial attach="material" color={Y_COLOR} linewidth={2} depthTest={false} />
           </line>
         </group>
         
@@ -388,11 +380,10 @@ function App() {
           return <Segment key={`seg-${i}`} start={nodes[i-1].pos} end={node.pos} isSelected={selectedSegIdx === i} onSelect={() => { setSelectedSegIdx(i); setSelectedIdx(null); }} />;
         })}
 
-        {/* Scale Calibration Visualization */}
         {interactionMode === 'calibrate_scale_p2' && scaleP1 && (
-          <mesh position={[scaleP1.x, scaleP1.y, 0.1]}>
+          <mesh position={[scaleP1.x, scaleP1.y, 0.5]} renderOrder={20}>
             <sphereGeometry args={[0.2]} />
-            <meshBasicMaterial color="yellow" />
+            <meshBasicMaterial color="yellow" depthTest={false} />
           </mesh>
         )}
       </Canvas>

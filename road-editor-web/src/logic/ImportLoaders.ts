@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import DxfParser from 'dxf-parser';
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Set up PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+// Set up PDF.js worker - using unpkg for more reliable version matching
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
 export interface LayerData {
   id: string;
@@ -23,7 +23,8 @@ export class ImportLoaders {
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
     const page = await pdf.getPage(1);
     
-    const viewport = page.getViewport({ scale: 2.0 });
+    // Higher scale (3.0) for better contrast/sharpness
+    const viewport = page.getViewport({ scale: 3.0 });
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
     canvas.height = viewport.height;
@@ -31,17 +32,25 @@ export class ImportLoaders {
 
     if (!context) throw new Error("Could not create canvas context");
     
+    // Ensure white background for contrast
+    context.fillStyle = 'white';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    
     await page.render({ canvasContext: context, viewport }).promise;
     
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearMipmapLinearFilter; // Better minification
+    texture.magFilter = THREE.LinearFilter;
+    texture.generateMipmaps = true;
+    texture.anisotropy = 16;
     
     return {
       id: Math.random().toString(36).substr(2, 9),
       name: file.name,
       type: 'pdf',
       visible: true,
-      position: new THREE.Vector3(0, 0, 0.002),
+      position: new THREE.Vector3(0, 0, 0.05), // Higher base Z
       scale: 1,
       rotation: 0,
       content: texture,
