@@ -6,7 +6,7 @@ import { RoadGeometry, type NodeData, type EdgeData } from './logic/Geometry'
 import { ImportLoaders, type LayerData } from './logic/ImportLoaders'
 import './App.css'
 
-// Standard SketchUp Colors
+// Colors
 const X_COLOR = '#ff0000', Y_COLOR = '#00ff00', Z_COLOR = '#0000ff'
 const GRID_COLOR = '#d1e7f0', GRID_SECTION_COLOR = '#a0c4d1'
 
@@ -91,7 +91,6 @@ function Node({ node, isSelected, isHovered, onSelect, editMode, axisLock, snapV
     const mirrored = node.pos.clone().sub(rel);
     onChange(isLeft ? { ...node, left_h: snapped, right_h: mirrored } : { ...node, right_h: snapped, left_h: mirrored });
   };
-
   return (
     <group position={[node.pos.x, node.pos.y, node.pos.z]} renderOrder={500} userData={{ nodeId: node.id }}>
       <mesh onClick={(e) => { e.stopPropagation(); onSelect(); }} onPointerDown={(e) => e.stopPropagation()}>
@@ -130,7 +129,7 @@ function Segment({ edge, nodesMap, isSelected, isHovered, onSelect }: { edge: Ed
   const curve = useMemo(() => new THREE.CubicBezierCurve3(n1.pos, n1.right_h, n2.left_h, n2.pos), [n1.pos, n1.right_h, n2.left_h, n2.pos]);
   const points = useMemo(() => curve.getPoints(24), [curve]);
   const roadGeometry = useMemo(() => {
-    const pathPoints = edge.isCurved ? RoadGeometry.generateBezierPath(n1, n2, 24) : [{ pos: n1.pos, ll: n1.lane_l, lr: n1.lane_r, sl: n1.sw_l, sr: n1.sw_r }, { pos: n2.pos, ll: n2.lane_l, lr: n2.lane_r, sl: n2.sw_l, sr: n2.sw_r }];
+    const pathPoints = edge.isCurved ? RoadGeometry.generateBezierPath(n1, n2, 24) : [{ pos: n1.pos, ll: n1.lane_l, lr: n1.lane_r, sw_l: n1.sw_l, sr: n1.sw_r }, { pos: n2.pos, ll: n2.lane_l, lr: n2.lane_r, sw_l: n2.sw_l, sr: n2.sw_r }];
     const edgesArr = RoadGeometry.calculateAllEdges(pathPoints.map(p => ({ pos: p.pos, ll: p.ll, lr: p.lr, sl: (p as any).sl || p.sw_l, sr: (p as any).sr || p.sw_r })) as any);
     const roadV: number[] = [], roadI: number[] = [], swV: number[] = [], swI: number[] = [];
     const addQ = (p1: THREE.Vector3, p2: THREE.Vector3, p3: THREE.Vector3, p4: THREE.Vector3, v: number[], idx: number[]) => {
@@ -140,7 +139,6 @@ function Segment({ edge, nodesMap, isSelected, isHovered, onSelect }: { edge: Ed
     const createG = (v: number[], idx: number[]) => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3)); g.setIndex(idx); g.computeVertexNormals(); return g; };
     return { road: createG(roadV, roadI), sw: createG(swV, swI) };
   }, [n1, n2, edge.isCurved]);
-
   return (
     <group renderOrder={400} userData={{ edgeId: edge.id }}>
       <Line points={[n1.pos, n2.pos]} color={isSelected && !edge.isCurved ? "yellow" : (isHovered ? "orange" : "#999")} lineWidth={isHovered ? 4 : 2} transparent opacity={0.3} depthTest={false} />
@@ -161,9 +159,7 @@ function NumericInput({ label, value, onChange }: { label: string, value: number
   return <label style={{ fontSize: '0.7rem', fontWeight: 'bold', color: '#666' }}>{label}<input type="text" value={local} onChange={e => setLocal(e.target.value)} onBlur={commit} onKeyDown={e => e.key === 'Enter' && commit()} style={{ width: '100%', padding: '4px', border: '1px solid #ddd', borderRadius: '4px' }} /></label>;
 }
 
-function LayerItem({ layer, onToggle, onDelete, onCalibrateOrigin, onCalibrateScale }: { 
-  layer: LayerData, onToggle: () => void, onDelete: () => void, onCalibrateOrigin: () => void, onCalibrateScale: () => void 
-}) {
+function LayerItem({ layer, onToggle, onDelete }: { layer: LayerData, onToggle: () => void, onDelete: () => void }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', background: '#f5f5f5', borderRadius: '6px', marginBottom: '4px' }}>
       <div style={{ flex: 1, fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={layer.name}>{layer.name}</div>
@@ -183,17 +179,17 @@ function App() {
   const [interactionMode, setInteractionMode] = useState<InteractionMode>('idle');
   const [editMode, setEditMode] = useState<EditMode>('MOVE_NODE');
   const [axisLock, setAxisLock] = useState<AxisLock>('none');
-  const [useSnap, setUseSnap] = useState(false);
+  const [useSnap, setUseSnap] = useState(true);
   const [snapStep, setSnapStep] = useState(1);
   const [isPerspective, setIsPerspective] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
   const [layers, setLayers] = useState<LayerData[]>([]);
   const [activeChainStartId, setActiveChainStartId] = useState<string | null>(null);
   const [mousePointer, setMousePointer] = useState<THREE.Vector3>(new THREE.Vector3());
+  const [is90Snapped, setIs90Snapped] = useState(false);
   const orbitRef = useRef<any>();
 
-  const snap = (v: number) => useSnap ? Math.round(v / snapStep) * snapStep : v;
-  const snapVec = (v: THREE.Vector3) => new THREE.Vector3(snap(v.x), snap(v.y), snap(v.z));
+  const snapVec = (v: THREE.Vector3) => useSnap ? new THREE.Vector3(Math.round(v.x / snapStep) * snapStep, Math.round(v.y / snapStep) * snapStep, Math.round(v.z / snapStep) * snapStep) : v;
 
   const addNode = (pos: THREE.Vector3) => {
     const id = "n" + Math.random().toString(36).substr(2, 5);
@@ -232,17 +228,15 @@ function App() {
     input.click();
   };
 
-  // Dedicated component to handle pointer move and clicks inside the Canvas context
   function SceneController() {
     const { scene, raycaster } = useThree();
-    
     const onPointerMove = (e: any) => {
       if (!e.point) return;
-      const point = snapVec(e.point.clone());
-      
+      let point = snapVec(e.point.clone());
+      let snapped90 = false;
       if (interactionMode === 'ROAD_CREATION') {
         const intersects = raycaster.intersectObjects(scene.children, true);
-        let foundNode: string | null = null; let foundEdge: string | null = null;
+        let foundNode: string | null = null, foundEdge: string | null = null;
         for (const intersect of intersects) {
           let obj = intersect.object;
           while (obj && !obj.userData.nodeId && !obj.userData.edgeId && obj.parent) obj = obj.parent as any;
@@ -250,28 +244,60 @@ function App() {
           if (obj?.userData.edgeId) { foundEdge = obj.userData.edgeId; break; }
         }
         setHoveredNodeId(foundNode); setHoveredEdgeId(foundNode ? null : foundEdge);
-        if (foundNode) setMousePointer(nodes[foundNode].pos.clone());
-        else setMousePointer(point);
-      } else {
-        setMousePointer(point);
+        if (foundNode) {
+          point = nodes[foundNode].pos.clone();
+        } else if (activeChainStartId && nodes[activeChainStartId]) {
+          const curr = nodes[activeChainStartId].pos;
+          const prevEdge = edges.find(ed => ed.n2 === activeChainStartId || ed.n1 === activeChainStartId);
+          if (prevEdge) {
+            const prevNodeId = prevEdge.n1 === activeChainStartId ? prevEdge.n2 : prevEdge.n1;
+            const prev = nodes[prevNodeId].pos;
+            const vecIn = new THREE.Vector3().subVectors(curr, prev).setZ(0).normalize();
+            const vecOut = new THREE.Vector3().subVectors(point, curr).setZ(0);
+            const angle = vecIn.angleTo(vecOut.clone().normalize());
+            if (Math.abs(angle - Math.PI / 2) < 0.15 || Math.abs(angle - (3 * Math.PI) / 2) < 0.15) {
+              snapped90 = true;
+              const side = new THREE.Vector3().crossVectors(vecIn, new THREE.Vector3(0,0,1)).normalize();
+              const dist = vecOut.length();
+              const dot = vecOut.normalize().dot(side);
+              point.copy(curr).add(side.multiplyScalar(dist * (dot > 0 ? 1 : -1)));
+            }
+          }
+        }
       }
+      setMousePointer(point);
+      setIs90Snapped(snapped90);
     };
-
     const onClick = (e: any) => {
-      if (interactionMode !== 'ROAD_CREATION') { setSelectedNodeId(null); setSelectedEdgeId(null); return; }
+      if (interactionMode !== 'ROAD_CREATION') return;
       e.stopPropagation();
-      const clickPoint = snapVec(e.point.clone());
-      let targetNodeId: string | null = hoveredNodeId;
-      if (!targetNodeId && hoveredEdgeId) targetNodeId = splitEdge(hoveredEdgeId, clickPoint);
-      if (!targetNodeId) targetNodeId = addNode(clickPoint);
-      if (activeChainStartId && activeChainStartId !== targetNodeId) addEdge(activeChainStartId, targetNodeId);
-      setActiveChainStartId(targetNodeId); setSelectedNodeId(targetNodeId);
+      let targetId = hoveredNodeId;
+      if (!targetId && hoveredEdgeId) {
+          const edge = edges.find(ed => ed.id === hoveredEdgeId)!;
+          targetId = addNode(mousePointer);
+          setEdges(prev => {
+             const filtered = prev.filter(ed => ed.id !== hoveredEdgeId);
+             return [...filtered, { id: Math.random().toString(), n1: edge.n1, n2: targetId!, isCurved: false }, { id: Math.random().toString(), n1: targetId!, n2: edge.n2, isCurved: false }];
+          });
+      }
+      if (!targetId) targetId = addNode(mousePointer);
+      if (activeChainStartId && activeChainStartId !== targetId) addEdge(activeChainStartId, targetId);
+      setActiveChainStartId(targetId); setSelectedNodeId(targetId);
     };
-
     return (
-      <mesh rotation={[0, 0, 0]} onPointerMove={onPointerMove} onClick={onClick} onDoubleClick={() => setActiveChainStartId(null)} position={[0,0,0]} renderOrder={0}>
-        <planeGeometry args={[20000, 20000]} /><meshBasicMaterial transparent opacity={0} depthWrite={false} />
-      </mesh>
+      <>
+        <mesh rotation={[0, 0, 0]} onPointerMove={onPointerMove} onClick={onClick} onDoubleClick={() => setActiveChainStartId(null)} position={[0,0,0]} renderOrder={0}>
+          <planeGeometry args={[20000, 20000]} /><meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        </mesh>
+        {is90Snapped && interactionMode === 'ROAD_CREATION' && activeChainStartId && (
+          <group position={nodes[activeChainStartId].pos}>
+            <mesh position={[0, 0, 0.05]} renderOrder={1000}>
+              <boxGeometry args={[0.5, 0.5, 0.01]} />
+              <meshBasicMaterial color="yellow" transparent opacity={0.5} depthTest={false} />
+            </mesh>
+          </group>
+        )}
+      </>
     );
   }
 
@@ -280,13 +306,16 @@ function App() {
       <div style={{ position: 'absolute', top: 20, right: 20, zIndex: 10, display: 'flex', gap: '5px', background: 'rgba(255,255,255,0.9)', padding: '5px', borderRadius: '8px' }}>
         <button className={`tool-btn ${interactionMode === 'ROAD_CREATION' ? 'active' : ''}`} onClick={() => setInteractionMode(p => p === 'ROAD_CREATION' ? 'idle' : 'ROAD_CREATION')}>🛣️ Road Tool</button>
         <button className={`tool-btn ${isPerspective ? 'active' : ''}`} onClick={() => setIsPerspective(true)}>Persp</button><button className={`tool-btn ${!isPerspective ? 'active' : ''}`} onClick={() => setIsPerspective(false)}>Top</button>
-        <button className={`tool-btn ${showGrid ? 'active' : ''}`} onClick={() => setShowGrid(!showGrid)}>Grid</button><button className={`tool-btn ${useSnap ? 'active' : ''}`} onClick={() => setUseSnap(!useSnap)}>Snap: {snapStep}m</button>
+        <button className={`tool-btn ${showGrid ? 'active' : ''}`} onClick={() => setShowGrid(!showGrid)}>Grid</button>
+        <button className={`tool-btn ${useSnap ? 'active' : ''}`} onClick={() => setUseSnap(!useSnap)}>Snap: {useSnap ? snapStep+'m' : 'OFF'}</button>
       </div>
+
       <div style={{ position: 'absolute', top: 80, left: '50%', transform: 'translateX(-50%)', zIndex: 100, pointerEvents: 'none' }}>
         <div style={{ background: interactionMode === 'ROAD_CREATION' ? '#4CAF50' : 'rgba(255,255,255,0.9)', color: interactionMode === 'ROAD_CREATION' ? 'white' : '#222', padding: '8px 20px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 'bold' }}>
           {interactionMode === 'ROAD_CREATION' ? "ROAD TOOL (Click nodes/edges to connect, ESC to finish chain)" : `MODE: ${editMode} (W) | LOCK: ${axisLock.toUpperCase()}`}
         </div>
       </div>
+
       <div style={{ position: 'absolute', top: 20, left: 20, zIndex: 10, display: 'flex', flexDirection: 'column', gap: '20px' }}>
         <div style={{ background: 'rgba(255,255,255,0.95)', padding: '20px', borderRadius: '12px', width: '260px' }}>
           <h2 style={{ margin: '0 0 15px 0', fontSize: '1.2rem', fontWeight: 800 }}>ROAD EDITOR</h2>
@@ -302,29 +331,44 @@ function App() {
           )}
           {selectedEdgeId && edges.find(e => e.id === selectedEdgeId) && (
             <div style={{ padding: '15px', background: '#e3f2fd', borderRadius: '8px', marginTop: '10px' }}>
-              <button className={`tool-btn ${edges.find(e => e.id === selectedEdgeId)?.isCurved ? 'active' : ''}`} onClick={() => { setEdges(prev => prev.map(e => e.id === selectedEdgeId ? { ...e, isCurved: !e.isCurved } : e)); }}>Toggle Curved</button>
+              <button className={`tool-btn ${edges.find(e => e.id === selectedEdgeId)?.isCurved ? 'active' : ''}`} onClick={() => {
+                setEdges(prev => prev.map(e => {
+                   if (e.id !== selectedEdgeId) return e;
+                   const isCurved = !e.isCurved;
+                   if (isCurved) {
+                      const n1 = nodes[e.n1], n2 = nodes[e.n2]; const dir = n2.pos.clone().sub(n1.pos);
+                      setNodes(pn => ({ ...pn, [e.n1]: { ...pn[e.n1], right_h: n1.pos.clone().add(dir.clone().multiplyScalar(0.33)) }, [e.n2]: { ...pn[e.n2], left_h: n1.pos.clone().add(dir.clone().multiplyScalar(0.66)) } }));
+                   }
+                   return { ...e, isCurved };
+                }));
+              }}>Toggle Curved</button>
             </div>
           )}
         </div>
+        <div style={{ background: 'rgba(255,255,255,0.95)', padding: '20px', borderRadius: '12px', width: '260px' }}>
+          <h2 style={{ fontSize: '1rem', fontWeight: 800 }}>LAYERS</h2>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+             <button onClick={() => handleImport('pdf')} style={{ flex: 1 }}>PDF</button>
+             <button onClick={() => handleImport('dxf')} style={{ flex: 1 }}>DXF</button>
+          </div>
+          {layers.map(l => <LayerItem key={l.id} layer={l} onToggle={() => setLayers(prev => prev.map(ly => ly.id === l.id ? { ...ly, visible: !ly.visible } : ly))} onDelete={() => setLayers(prev => prev.filter(ly => ly.id !== l.id))} />)}
+        </div>
       </div>
+
       <Canvas shadows flat>
         <color attach="background" args={['white']} />
         {isPerspective ? <PerspectiveCamera makeDefault position={[30, -30, 30]} up={[0, 0, 1]} fov={45} /> : <OrthographicCamera makeDefault position={[0, 0, 50]} up={[0, 1, 0]} zoom={20} far={1000} near={-1000} />}
         <OrbitControls ref={orbitRef} makeDefault enableRotate={isPerspective} />
         <ambientLight intensity={1.0} /><AdaptiveGrid visible={showGrid} setSnapStep={setSnapStep} />
-        
         <SceneController />
-
-        {interactionMode === 'ROAD_CREATION' && activeChainStartId && nodes[activeChainStartId] && <Line points={[nodes[activeChainStartId].pos, mousePointer]} color="orange" lineWidth={2} dashed dashSize={0.5} gapSize={0.2} transparent opacity={0.8} />}
-        {interactionMode === 'ROAD_CREATION' && <mesh position={[mousePointer.x, mousePointer.y, mousePointer.z + 0.05]}><sphereGeometry args={[0.25]} /><meshBasicMaterial color="orange" depthTest={false} /></mesh>}
-
+        {interactionMode === 'ROAD_CREATION' && activeChainStartId && <Line points={[nodes[activeChainStartId].pos, mousePointer]} color={is90Snapped ? "yellow" : "orange"} lineWidth={3} depthTest={false} />}
+        {interactionMode === 'ROAD_CREATION' && <mesh position={[mousePointer.x, mousePointer.y, mousePointer.z + 0.05]}><sphereGeometry args={[0.2]} /><meshBasicMaterial color={is90Snapped ? "yellow" : "orange"} depthTest={false} /></mesh>}
         <group renderOrder={10}>
-          {Object.values(nodes).map((n) => <Node key={n.id} node={n} isSelected={selectedNodeId === n.id} isHovered={hoveredNodeId === n.id} onSelect={() => { if (interactionMode === 'ROAD_CREATION') { if (activeChainStartId && activeChainStartId !== n.id) addEdge(activeChainStartId, n.id); setActiveChainStartId(n.id); } setSelectedNodeId(n.id); setSelectedEdgeId(null); }} onChange={(newData) => setNodes(prev => ({ ...prev, [newData.id]: newData }))} editMode={editMode} axisLock={axisLock} snapVec={snapVec} orbitControlsRef={orbitRef} />)}
-          {edges.map((e) => <Segment key={e.id} edge={e} nodesMap={nodes} isSelected={selectedEdgeId === e.id} isHovered={hoveredEdgeId === e.id} onSelect={() => { if (interactionMode === 'ROAD_CREATION') { const nid = splitEdge(e.id, mousePointer); if (nid) { if (activeChainStartId) addEdge(activeChainStartId, nid); setActiveChainStartId(nid); setSelectedNodeId(nid); } } else { setSelectedEdgeId(e.id); setSelectedNodeId(null); } }} />)}
+          {Object.values(nodes).map((n) => <Node key={n.id} node={n} nodesMap={nodes} isSelected={selectedNodeId === n.id} isHovered={hoveredNodeId === n.id} onSelect={() => { setSelectedNodeId(n.id); setSelectedEdgeId(null); }} onChange={(newData) => setNodes(prev => ({ ...prev, [newData.id]: newData }))} editMode={editMode} axisLock={axisLock} snapVec={snapVec} orbitControlsRef={orbitRef} />)}
+          {edges.map((e) => <Segment key={e.id} edge={e} nodesMap={nodes} isSelected={selectedEdgeId === e.id} isHovered={hoveredEdgeId === e.id} onSelect={() => { setSelectedEdgeId(e.id); setSelectedNodeId(null); }} />)}
         </group>
-        
         {layers.map(layer => (
-          <group key={layer.id} position={layer.position} scale={[layer.scale, layer.scale, 1]} visible={layer.visible} renderOrder={1}>
+          <group key={layer.id} position={layer.position} scale={[layer.scale, layer.scale, 1]} visible={layer.visible} renderOrder={1} onPointerMove={(e: any) => e.stopPropagation()} onClick={(e: any) => e.stopPropagation()}>
             {layer.type === 'pdf' ? <mesh><planeGeometry args={[10 * (layer.aspectRatio || 1), 10]} /><meshBasicMaterial map={layer.content as THREE.Texture} side={THREE.DoubleSide} toneMapped={false} depthWrite={true} /></mesh> : <primitive object={layer.content} />}
           </group>
         ))}
@@ -332,5 +376,4 @@ function App() {
     </div>
   );
 }
-
 export default App
