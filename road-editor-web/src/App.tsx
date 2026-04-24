@@ -6,7 +6,7 @@ import { RoadGeometry, type NodeData, type EdgeData } from './logic/Geometry'
 import { ImportLoaders, type LayerData } from './logic/ImportLoaders'
 import './App.css'
 
-// Colors
+// Standard SketchUp Colors
 const X_COLOR = '#ff0000', Y_COLOR = '#00ff00', Z_COLOR = '#0000ff'
 const GRID_COLOR = '#d1e7f0', GRID_SECTION_COLOR = '#a0c4d1'
 
@@ -91,6 +91,7 @@ function Node({ node, isSelected, isHovered, onSelect, editMode, axisLock, snapV
     const mirrored = node.pos.clone().sub(rel);
     onChange(isLeft ? { ...node, left_h: snapped, right_h: mirrored } : { ...node, right_h: snapped, left_h: mirrored });
   };
+
   return (
     <group position={[node.pos.x, node.pos.y, node.pos.z]} renderOrder={500} userData={{ nodeId: node.id }}>
       <mesh onClick={(e) => { e.stopPropagation(); onSelect(); }} onPointerDown={(e) => e.stopPropagation()}>
@@ -139,6 +140,7 @@ function Segment({ edge, nodesMap, isSelected, isHovered, onSelect }: { edge: Ed
     const createG = (v: number[], idx: number[]) => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3)); g.setIndex(idx); g.computeVertexNormals(); return g; };
     return { road: createG(roadV, roadI), sw: createG(swV, swI) };
   }, [n1, n2, edge.isCurved]);
+
   return (
     <group renderOrder={400} userData={{ edgeId: edge.id }}>
       <Line points={[n1.pos, n2.pos]} color={isSelected && !edge.isCurved ? "yellow" : (isHovered ? "orange" : "#999")} lineWidth={isHovered ? 4 : 2} transparent opacity={0.3} depthTest={false} />
@@ -157,6 +159,18 @@ function NumericInput({ label, value, onChange }: { label: string, value: number
   useEffect(() => setLocal(value.toFixed(2)), [value]);
   const commit = () => { const p = parseFloat(local); if (!isNaN(p)) onChange(p); else setLocal(value.toFixed(2)); };
   return <label style={{ fontSize: '0.7rem', fontWeight: 'bold', color: '#666' }}>{label}<input type="text" value={local} onChange={e => setLocal(e.target.value)} onBlur={commit} onKeyDown={e => e.key === 'Enter' && commit()} style={{ width: '100%', padding: '4px', border: '1px solid #ddd', borderRadius: '4px' }} /></label>;
+}
+
+function LayerItem({ layer, onToggle, onDelete, onCalibrateOrigin, onCalibrateScale }: { 
+  layer: LayerData, onToggle: () => void, onDelete: () => void, onCalibrateOrigin: () => void, onCalibrateScale: () => void 
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', background: '#f5f5f5', borderRadius: '6px', marginBottom: '4px' }}>
+      <div style={{ flex: 1, fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={layer.name}>{layer.name}</div>
+      <button onClick={onToggle}>{layer.visible ? '👁️' : '🕶️'}</button>
+      <button onClick={onDelete}>🗑️</button>
+    </div>
+  );
 }
 
 function App() {
@@ -208,41 +222,58 @@ function App() {
     window.addEventListener('keydown', handleKD); return () => window.removeEventListener('keydown', handleKD);
   }, []);
 
-  const handlePointerMove = (e: any) => {
-    if (!e.point) return;
-    const point = snapVec(e.point.clone());
+  const handleImport = async (type: 'pdf' | 'dxf') => {
+    const input = document.createElement('input'); input.type = 'file'; input.accept = type === 'pdf' ? '.pdf' : '.dxf';
+    input.onchange = async (e: any) => {
+      const file = e.target.files[0]; if (!file) return;
+      try { const newLayer = type === 'pdf' ? await ImportLoaders.loadPDF(file) : await ImportLoaders.loadDXF(file); setLayers(prev => [...prev, newLayer]); } 
+      catch (err) { alert("Import failed."); }
+    };
+    input.click();
+  };
+
+  // Dedicated component to handle pointer move and clicks inside the Canvas context
+  function SceneController() {
+    const { scene, raycaster } = useThree();
     
-    if (interactionMode === 'ROAD_CREATION') {
-      const intersects = e.raycaster.intersectObjects(e.scene.children, true);
-      let foundNode: string | null = null; let foundEdge: string | null = null;
-      for (const intersect of intersects) {
-        let obj = intersect.object;
-        while (obj && !obj.userData.nodeId && !obj.userData.edgeId && obj.parent) obj = obj.parent as any;
-        if (obj?.userData.nodeId) { foundNode = obj.userData.nodeId; break; }
-        if (obj?.userData.edgeId) { foundEdge = obj.userData.edgeId; break; }
-      }
-      setHoveredNodeId(foundNode); setHoveredEdgeId(foundNode ? null : foundEdge);
+    const onPointerMove = (e: any) => {
+      if (!e.point) return;
+      const point = snapVec(e.point.clone());
       
-      // MAGNETISMO VISUAL
-      if (foundNode) setMousePointer(nodes[foundNode].pos.clone());
-      else setMousePointer(point);
-    } else {
-      setMousePointer(point);
-    }
-  };
+      if (interactionMode === 'ROAD_CREATION') {
+        const intersects = raycaster.intersectObjects(scene.children, true);
+        let foundNode: string | null = null; let foundEdge: string | null = null;
+        for (const intersect of intersects) {
+          let obj = intersect.object;
+          while (obj && !obj.userData.nodeId && !obj.userData.edgeId && obj.parent) obj = obj.parent as any;
+          if (obj?.userData.nodeId) { foundNode = obj.userData.nodeId; break; }
+          if (obj?.userData.edgeId) { foundEdge = obj.userData.edgeId; break; }
+        }
+        setHoveredNodeId(foundNode); setHoveredEdgeId(foundNode ? null : foundEdge);
+        if (foundNode) setMousePointer(nodes[foundNode].pos.clone());
+        else setMousePointer(point);
+      } else {
+        setMousePointer(point);
+      }
+    };
 
-  const handleCanvasClick = (e: any) => {
-    if (interactionMode !== 'ROAD_CREATION') { setSelectedNodeId(null); setSelectedEdgeId(null); return; }
-    e.stopPropagation();
-    
-    let targetNodeId: string | null = hoveredNodeId;
-    if (!targetNodeId && hoveredEdgeId) targetNodeId = splitEdge(hoveredEdgeId, mousePointer);
-    if (!targetNodeId) targetNodeId = addNode(mousePointer);
-    if (activeChainStartId && activeChainStartId !== targetNodeId) addEdge(activeChainStartId, targetNodeId);
+    const onClick = (e: any) => {
+      if (interactionMode !== 'ROAD_CREATION') { setSelectedNodeId(null); setSelectedEdgeId(null); return; }
+      e.stopPropagation();
+      const clickPoint = snapVec(e.point.clone());
+      let targetNodeId: string | null = hoveredNodeId;
+      if (!targetNodeId && hoveredEdgeId) targetNodeId = splitEdge(hoveredEdgeId, clickPoint);
+      if (!targetNodeId) targetNodeId = addNode(clickPoint);
+      if (activeChainStartId && activeChainStartId !== targetNodeId) addEdge(activeChainStartId, targetNodeId);
+      setActiveChainStartId(targetNodeId); setSelectedNodeId(targetNodeId);
+    };
 
-    setActiveChainStartId(targetNodeId);
-    setSelectedNodeId(targetNodeId);
-  };
+    return (
+      <mesh rotation={[0, 0, 0]} onPointerMove={onPointerMove} onClick={onClick} onDoubleClick={() => setActiveChainStartId(null)} position={[0,0,0]} renderOrder={0}>
+        <planeGeometry args={[20000, 20000]} /><meshBasicMaterial transparent opacity={0} depthWrite={false} />
+      </mesh>
+    );
+  }
 
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative', background: 'white' }}>
@@ -256,15 +287,33 @@ function App() {
           {interactionMode === 'ROAD_CREATION' ? "ROAD TOOL (Click nodes/edges to connect, ESC to finish chain)" : `MODE: ${editMode} (W) | LOCK: ${axisLock.toUpperCase()}`}
         </div>
       </div>
-      <Canvas shadows flat onPointerMove={handlePointerMove}>
+      <div style={{ position: 'absolute', top: 20, left: 20, zIndex: 10, display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <div style={{ background: 'rgba(255,255,255,0.95)', padding: '20px', borderRadius: '12px', width: '260px' }}>
+          <h2 style={{ margin: '0 0 15px 0', fontSize: '1.2rem', fontWeight: 800 }}>ROAD EDITOR</h2>
+          {selectedNodeId && nodes[selectedNodeId] && (
+            <div style={{ padding: '15px', background: '#f9f9f9', borderRadius: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}><span>Node Info</span><button className="tool-btn" style={{ fontSize: '0.6rem' }} onClick={() => { const filtered = { ...nodes }; delete filtered[selectedNodeId]; setNodes(filtered); setEdges(prev => prev.filter(e => e.n1 !== selectedNodeId && e.n2 !== selectedNodeId)); setSelectedNodeId(null); }}>Delete</button></div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+                <NumericInput label="X" value={nodes[selectedNodeId].pos.x} onChange={v => setNodes(p => ({ ...p, [selectedNodeId]: { ...p[selectedNodeId], pos: p[selectedNodeId].pos.clone().setX(v) } }))} />
+                <NumericInput label="Y" value={nodes[selectedNodeId].pos.y} onChange={v => setNodes(p => ({ ...p, [selectedNodeId]: { ...p[selectedNodeId], pos: p[selectedNodeId].pos.clone().setY(v) } }))} />
+                <NumericInput label="Z" value={nodes[selectedNodeId].pos.z} onChange={v => setNodes(p => ({ ...p, [selectedNodeId]: { ...p[selectedNodeId], pos: p[selectedNodeId].pos.clone().setZ(v) } }))} />
+              </div>
+            </div>
+          )}
+          {selectedEdgeId && edges.find(e => e.id === selectedEdgeId) && (
+            <div style={{ padding: '15px', background: '#e3f2fd', borderRadius: '8px', marginTop: '10px' }}>
+              <button className={`tool-btn ${edges.find(e => e.id === selectedEdgeId)?.isCurved ? 'active' : ''}`} onClick={() => { setEdges(prev => prev.map(e => e.id === selectedEdgeId ? { ...e, isCurved: !e.isCurved } : e)); }}>Toggle Curved</button>
+            </div>
+          )}
+        </div>
+      </div>
+      <Canvas shadows flat>
         <color attach="background" args={['white']} />
         {isPerspective ? <PerspectiveCamera makeDefault position={[30, -30, 30]} up={[0, 0, 1]} fov={45} /> : <OrthographicCamera makeDefault position={[0, 0, 50]} up={[0, 1, 0]} zoom={20} far={1000} near={-1000} />}
         <OrbitControls ref={orbitRef} makeDefault enableRotate={isPerspective} />
         <ambientLight intensity={1.0} /><AdaptiveGrid visible={showGrid} setSnapStep={setSnapStep} />
         
-        <mesh rotation={[0, 0, 0]} onPointerMove={handlePointerMove} onClick={handleCanvasClick} onDoubleClick={() => setActiveChainStartId(null)} position={[0,0,0]} renderOrder={0}>
-          <planeGeometry args={[20000, 20000]} /><meshBasicMaterial transparent opacity={0} depthWrite={false} />
-        </mesh>
+        <SceneController />
 
         {interactionMode === 'ROAD_CREATION' && activeChainStartId && nodes[activeChainStartId] && <Line points={[nodes[activeChainStartId].pos, mousePointer]} color="orange" lineWidth={2} dashed dashSize={0.5} gapSize={0.2} transparent opacity={0.8} />}
         {interactionMode === 'ROAD_CREATION' && <mesh position={[mousePointer.x, mousePointer.y, mousePointer.z + 0.05]}><sphereGeometry args={[0.25]} /><meshBasicMaterial color="orange" depthTest={false} /></mesh>}
@@ -275,7 +324,7 @@ function App() {
         </group>
         
         {layers.map(layer => (
-          <group key={layer.id} position={layer.position} scale={[layer.scale, layer.scale, 1]} visible={layer.visible} renderOrder={1} onClick={handleCanvasClick} onPointerMove={handlePointerMove}>
+          <group key={layer.id} position={layer.position} scale={[layer.scale, layer.scale, 1]} visible={layer.visible} renderOrder={1}>
             {layer.type === 'pdf' ? <mesh><planeGeometry args={[10 * (layer.aspectRatio || 1), 10]} /><meshBasicMaterial map={layer.content as THREE.Texture} side={THREE.DoubleSide} toneMapped={false} depthWrite={true} /></mesh> : <primitive object={layer.content} />}
           </group>
         ))}
