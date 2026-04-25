@@ -124,7 +124,7 @@ function Node({ node, isSelected, isHovered, onSelect, interactionMode, editMode
         }
       }} onPointerDown={(e) => {
         if (interactionMode === 'SELECT') e.stopPropagation();
-      }}>
+      }} castShadow>
         <sphereGeometry args={[isHovered ? 0.45 : 0.25, 32, 32]} />
         <meshBasicMaterial color={isSelected ? "yellow" : (isHovered ? "orange" : "#2222ff")} depthTest={false} />
       </mesh>
@@ -208,11 +208,11 @@ function Segment({ edge, nodesMap, isSelected, isHovered, onSelect, interactionM
     <group renderOrder={1} userData={{ edgeId: edge.id }}>
       <Line points={[n1.pos, n2.pos]} color={isSelected && !edge.isCurved ? "yellow" : (isHovered ? "orange" : "#999")} lineWidth={isHovered ? 4 : 2} transparent opacity={0.3} depthTest={false} />
       {edge.isCurved && <Line points={points} color={isSelected ? "#00ffff" : "#444"} lineWidth={isSelected ? 5 : 2} depthTest={false} />}
-      <mesh geometry={roadGeometry.road} renderOrder={1}>
-        <meshBasicMaterial color="#3366ff" side={THREE.DoubleSide} polygonOffset polygonOffsetFactor={1} polygonOffsetUnits={1} />
+      <mesh geometry={roadGeometry.road} renderOrder={1} castShadow>
+        <meshLambertMaterial color="#3366ff" side={THREE.DoubleSide} polygonOffset polygonOffsetFactor={1} polygonOffsetUnits={1} />
       </mesh>
-      <mesh geometry={roadGeometry.sw} renderOrder={1}>
-        <meshBasicMaterial color="#6699ff" side={THREE.DoubleSide} polygonOffset polygonOffsetFactor={1} polygonOffsetUnits={1} />
+      <mesh geometry={roadGeometry.sw} renderOrder={1} castShadow>
+        <meshLambertMaterial color="#6699ff" side={THREE.DoubleSide} polygonOffset polygonOffsetFactor={1} polygonOffsetUnits={1} />
       </mesh>
       <mesh position={n1.pos.clone().lerp(n2.pos, 0.5)} quaternion={new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0), n2.pos.clone().sub(n1.pos).normalize())} 
         onClick={(e) => { 
@@ -269,6 +269,11 @@ function App() {
   const orbitRef = useRef<any>();
 
   const snapVec = (v: THREE.Vector3) => useSnap ? new THREE.Vector3(Math.round(v.x / snapStep) * snapStep, Math.round(v.y / snapStep) * snapStep, Math.round(v.z / snapStep) * snapStep) : v;
+
+  const minZ = useMemo(() => {
+    const vals = Object.values(nodes).map(n => n.pos.z);
+    return vals.length > 0 ? Math.min(0, ...vals) : 0;
+  }, [nodes]);
 
   const generateId = (prefix: string) => prefix + Math.random().toString(36).substring(2, 7);
 
@@ -448,8 +453,27 @@ function App() {
         <color attach="background" args={['white']} />
         {isPerspective ? <PerspectiveCamera makeDefault position={[30, -30, 30]} up={[0, 0, 1]} fov={45} /> : <OrthographicCamera makeDefault position={[0, 0, 50]} up={[0, 1, 0]} zoom={20} far={1000} near={-1000} />}
         <OrbitControls ref={orbitRef} makeDefault enableRotate={isPerspective} />
-        <ambientLight intensity={1.0} /><AdaptiveGrid visible={showGrid} setSnapStep={setSnapStep} />
+        
+        <ambientLight intensity={1.5} />
+        <directionalLight 
+          position={[50, 50, 100]} 
+          intensity={1.2} 
+          castShadow 
+          shadow-mapSize={[2048, 2048]} 
+          shadow-camera-left={-100} 
+          shadow-camera-right={100} 
+          shadow-camera-top={100} 
+          shadow-camera-bottom={-100}
+        />
+
+        <AdaptiveGrid visible={showGrid} setSnapStep={setSnapStep} />
         <SceneController />
+        
+        <mesh receiveShadow position={[0, 0, minZ]} rotation={[-Math.PI / 2, 0, 0]} renderOrder={0}>
+          <planeGeometry args={[20000, 20000]} />
+          <shadowMaterial transparent opacity={0.3} polygonOffset polygonOffsetFactor={4} polygonOffsetUnits={4} />
+        </mesh>
+
         {interactionMode === 'CREATE' && activeChainStartId && <Line points={[nodes[activeChainStartId].pos, mousePointer]} color={is90Snapped ? "yellow" : "orange"} lineWidth={3} depthTest={false} />}
         {interactionMode === 'CREATE' && <mesh position={[mousePointer.x, mousePointer.y, mousePointer.z + 0.05]}><sphereGeometry args={[0.2]} /><meshBasicMaterial color={is90Snapped ? "yellow" : "orange"} depthTest={false} /></mesh>}
         <group renderOrder={10}>
