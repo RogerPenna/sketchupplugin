@@ -14,7 +14,7 @@ type InteractionMode = 'SELECT' | 'CREATE' | 'calibrate_origin' | 'calibrate_sca
 type EditMode = 'MOVE_NODE' | 'MOVE_BEZIER';
 type AxisLock = 'none' | 'xy' | 'z';
 
-function AdaptiveGrid({ visible, setSnapStep }: { visible: boolean, setSnapStep: (s: number) => void }) {
+function AdaptiveGrid({ visible, setSnapStep, minZ }: { visible: boolean, setSnapStep: (s: number) => void, minZ: number }) {
   const { camera } = useThree();
   const [config, setConfig] = useState({ cellSize: 1, sectionSize: 10, fadeDistance: 600 });
   useFrame(() => {
@@ -24,8 +24,8 @@ function AdaptiveGrid({ visible, setSnapStep }: { visible: boolean, setSnapStep:
     if (config.cellSize !== newCell) { setConfig({ cellSize: newCell, sectionSize: newCell * 10, fadeDistance: newCell * 400 }); setSnapStep(newCell); }
   });
   if (!visible) return null;
-  // Positioned at 0.05 to be safely above the shadow/interaction plane
-  return <Grid position={[0, 0, 0.05]} infiniteGrid fadeDistance={config.fadeDistance} sectionSize={config.sectionSize} sectionThickness={1.5} sectionColor={GRID_SECTION_COLOR} cellSize={config.cellSize} cellThickness={0.8} cellColor={GRID_COLOR} rotation={[Math.PI / 2, 0, 0]} renderOrder={100} />;
+  // Positioned slightly below minZ to avoid road conflict
+  return <Grid position={[0, 0, minZ - 0.05]} infiniteGrid fadeDistance={config.fadeDistance} sectionSize={config.sectionSize} sectionThickness={1.5} sectionColor={GRID_SECTION_COLOR} cellSize={config.cellSize} cellThickness={0.8} cellColor={GRID_COLOR} rotation={[Math.PI / 2, 0, 0]} renderOrder={1} />;
 }
 
 function DragHandle({ direction, color, nodePos, onUpdate, onStart, onEnd, onSelect, size = 1.0, axisLock }: { 
@@ -530,7 +530,7 @@ function App() {
           shadow-camera-far={500}
         />
 
-        <AdaptiveGrid visible={showGrid} setSnapStep={setSnapStep} />
+        <AdaptiveGrid visible={showGrid} setSnapStep={setSnapStep} minZ={minZ} />
         <AxisLines />
         <SceneController />
         
