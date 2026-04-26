@@ -24,7 +24,8 @@ function AdaptiveGrid({ visible, setSnapStep }: { visible: boolean, setSnapStep:
     if (config.cellSize !== newCell) { setConfig({ cellSize: newCell, sectionSize: newCell * 10, fadeDistance: newCell * 400 }); setSnapStep(newCell); }
   });
   if (!visible) return null;
-  return <Grid position={[0, 0, 0]} infiniteGrid fadeDistance={config.fadeDistance} sectionSize={config.sectionSize} sectionThickness={1.5} sectionColor={GRID_SECTION_COLOR} cellSize={config.cellSize} cellThickness={0.8} cellColor={GRID_COLOR} rotation={[Math.PI / 2, 0, 0]} renderOrder={2} />;
+  // Positioned at 0.05 to be safely above the shadow/interaction plane
+  return <Grid position={[0, 0, 0.05]} infiniteGrid fadeDistance={config.fadeDistance} sectionSize={config.sectionSize} sectionThickness={1.5} sectionColor={GRID_SECTION_COLOR} cellSize={config.cellSize} cellThickness={0.8} cellColor={GRID_COLOR} rotation={[Math.PI / 2, 0, 0]} renderOrder={100} />;
 }
 
 function DragHandle({ direction, color, nodePos, onUpdate, onStart, onEnd, onSelect, size = 1.0, axisLock }: { 
@@ -88,8 +89,8 @@ function DragHandle({ direction, color, nodePos, onUpdate, onStart, onEnd, onSel
   );
 }
 
-function Node({ node, isSelected, isHovered, onSelect, interactionMode, editMode, axisLock, snapVec, onChange, orbitControlsRef }: { 
-  node: NodeData, isSelected: boolean, isHovered: boolean, onSelect: () => void, interactionMode: InteractionMode, editMode: EditMode, axisLock: AxisLock, snapVec: (v: THREE.Vector3) => THREE.Vector3, onChange: (d: NodeData) => void, orbitControlsRef: any
+function Node({ node, isSelected, isHovered, onSelect, onSceneClick, interactionMode, editMode, axisLock, snapVec, onChange, orbitControlsRef }: { 
+  node: NodeData, isSelected: boolean, isHovered: boolean, onSelect: () => void, onSceneClick: (p: THREE.Vector3, nodeId?: string, edgeId?: string) => void, interactionMode: InteractionMode, editMode: EditMode, axisLock: AxisLock, snapVec: (v: THREE.Vector3) => THREE.Vector3, onChange: (d: NodeData) => void, orbitControlsRef: any
 }) {
   const selectionGroupRef = useRef<THREE.Group>(null!);
   const { camera } = useThree();
@@ -121,6 +122,9 @@ function Node({ node, isSelected, isHovered, onSelect, interactionMode, editMode
         if (interactionMode === 'SELECT') {
           e.stopPropagation(); 
           onSelect(); 
+        } else if (interactionMode === 'CREATE') {
+          e.stopPropagation();
+          onSceneClick(node.pos, node.id);
         }
       }} onPointerDown={(e) => {
         if (interactionMode === 'SELECT') e.stopPropagation();
@@ -188,7 +192,7 @@ function Node({ node, isSelected, isHovered, onSelect, interactionMode, editMode
   );
 }
 
-function Segment({ edge, nodesMap, isSelected, isHovered, onSelect, interactionMode }: { edge: EdgeData, nodesMap: Record<string, NodeData>, isSelected: boolean, isHovered: boolean, onSelect: () => void, interactionMode: InteractionMode }) {
+function Segment({ edge, nodesMap, isSelected, isHovered, onSelect, onSceneClick, interactionMode }: { edge: EdgeData, nodesMap: Record<string, NodeData>, isSelected: boolean, isHovered: boolean, onSelect: () => void, onSceneClick: (p: THREE.Vector3, nodeId?: string, edgeId?: string) => void, interactionMode: InteractionMode }) {
   const n1 = nodesMap[edge.n1], n2 = nodesMap[edge.n2];
   if (!n1 || !n2) return null;
   const curve = useMemo(() => new THREE.CubicBezierCurve3(n1.pos, n1.right_h, n2.left_h, n2.pos), [n1.pos, n1.right_h, n2.left_h, n2.pos]);
@@ -205,24 +209,31 @@ function Segment({ edge, nodesMap, isSelected, isHovered, onSelect, interactionM
     return { road: createG(roadV, roadI), sw: createG(swV, swI) };
   }, [n1, n2, edge.isCurved]);
   return (
-    <group renderOrder={1} userData={{ edgeId: edge.id }}>
+    <group renderOrder={5} userData={{ edgeId: edge.id }}>
       <Line points={[n1.pos, n2.pos]} color={isSelected && !edge.isCurved ? "yellow" : (isHovered ? "orange" : "#999")} lineWidth={isHovered ? 4 : 2} transparent opacity={0.3} depthTest={false} />
       {edge.isCurved && <Line points={points} color={isSelected ? "#00ffff" : "#444"} lineWidth={isSelected ? 5 : 2} depthTest={false} />}
-      <mesh geometry={roadGeometry.road} renderOrder={1} castShadow>
-        <meshLambertMaterial color="#3366ff" side={THREE.DoubleSide} polygonOffset polygonOffsetFactor={1} polygonOffsetUnits={1} />
+      <mesh geometry={roadGeometry.road} renderOrder={6} castShadow>
+        <meshLambertMaterial color="#3366ff" side={THREE.DoubleSide} polygonOffset={true} polygonOffsetFactor={-1} polygonOffsetUnits={-1} />
       </mesh>
-      <mesh geometry={roadGeometry.sw} renderOrder={1} castShadow>
-        <meshLambertMaterial color="#6699ff" side={THREE.DoubleSide} polygonOffset polygonOffsetFactor={1} polygonOffsetUnits={1} />
+      <mesh geometry={roadGeometry.sw} renderOrder={7} castShadow>
+        <meshLambertMaterial color="#6699ff" side={THREE.DoubleSide} polygonOffset={true} polygonOffsetFactor={-2} polygonOffsetUnits={-2} />
       </mesh>
       <mesh position={n1.pos.clone().lerp(n2.pos, 0.5)} quaternion={new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0), n2.pos.clone().sub(n1.pos).normalize())} 
         onClick={(e) => { 
           if (interactionMode === 'SELECT') {
             e.stopPropagation(); 
             onSelect(); 
+          } else if (interactionMode === 'CREATE') {
+            e.stopPropagation();
+            if (typeof onSceneClick === 'function') {
+              onSceneClick(e.point, null, edge.id);
+            } else {
+              console.error('onSceneClick is not a function', onSceneClick);
+            }
           }
         }}
         onPointerDown={(e) => {
-          if (interactionMode === 'SELECT') e.stopPropagation();
+          if (interactionMode === 'SELECT' || interactionMode === 'CREATE') e.stopPropagation();
         }}>
         <cylinderGeometry args={[0.8, 0.8, n1.pos.distanceTo(n2.pos) * 0.9, 8]} />
         <meshBasicMaterial colorWrite={false} depthWrite={false} />
@@ -308,6 +319,40 @@ function App() {
     input.click();
   };
 
+  const handleSceneClick = useCallback((point: THREE.Vector3, targetNodeId?: string | null, targetEdgeId?: string | null) => {
+    console.log('handleSceneClick', { interactionMode, targetNodeId, targetEdgeId, point });
+    if (interactionMode !== 'CREATE') return;
+    
+    let targetId = targetNodeId;
+    
+    if (!targetId && targetEdgeId) {
+        console.log('Splitting edge', targetEdgeId);
+        const edge = edges.find(ed => ed.id === targetEdgeId)!;
+        targetId = addNode(point);
+        setEdges(prev => {
+           const filtered = prev.filter(ed => ed.id !== targetEdgeId);
+           return [...filtered, 
+             { id: generateId("e"), n1: edge.n1, n2: targetId!, isCurved: edge.isCurved }, 
+             { id: generateId("e"), n1: targetId!, n2: edge.n2, isCurved: edge.isCurved }
+           ];
+        });
+    }
+
+    if (!targetId) {
+        console.log('Adding new node at', point);
+        targetId = addNode(point);
+    }
+    
+    if (activeChainStartId && activeChainStartId !== targetId) {
+        console.log('Adding edge from', activeChainStartId, 'to', targetId);
+        addEdge(activeChainStartId, targetId);
+    }
+    
+    setActiveChainStartId(targetId); 
+    setSelectedNodeId(targetId);
+    setSelectedEdgeId(null);
+  }, [interactionMode, activeChainStartId, nodes, edges]);
+
   function SceneController() {
     const { scene, raycaster } = useThree();
     const onPointerMove = (e: any) => {
@@ -351,34 +396,21 @@ function App() {
       setIs90Snapped(snapped90);
     };
 
-    const onClick = (e: any) => {
-      if (interactionMode !== 'CREATE') return;
-      e.stopPropagation();
-      let targetId = hoveredNodeId;
-      
-      if (!targetId && hoveredEdgeId) {
-          const edge = edges.find(ed => ed.id === hoveredEdgeId)!;
-          targetId = addNode(mousePointer);
-          setEdges(prev => {
-             const filtered = prev.filter(ed => ed.id !== hoveredEdgeId);
-             return [...filtered, 
-               { id: generateId("e"), n1: edge.n1, n2: targetId!, isCurved: edge.isCurved }, 
-               { id: generateId("e"), n1: targetId!, n2: edge.n2, isCurved: edge.isCurved }
-             ];
-          });
-      }
-
-      if (!targetId) targetId = addNode(mousePointer);
-      if (activeChainStartId && activeChainStartId !== targetId) addEdge(activeChainStartId, targetId);
-      setActiveChainStartId(targetId); 
-      setSelectedNodeId(targetId);
-      setSelectedEdgeId(null);
-    };
-
     return (
       <>
-        <mesh rotation={[0, 0, 0]} onPointerMove={onPointerMove} onClick={onClick} onDoubleClick={() => setActiveChainStartId(null)} position={[0,0,0]} renderOrder={0}>
-          <planeGeometry args={[20000, 20000]} /><meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        {/* Virtual Surface: catch clicks AND shadows, but remains transparent */}
+        <mesh 
+          rotation={[0, 0, 0]} 
+          onPointerMove={onPointerMove} 
+          onClick={(e) => { e.stopPropagation(); handleSceneClick(mousePointer, hoveredNodeId, hoveredEdgeId); }} 
+          onPointerDown={(e) => { e.stopPropagation(); }}
+          onDoubleClick={(e) => { e.stopPropagation(); setActiveChainStartId(null); }} 
+          position={[0, 0, minZ - 0.2]} 
+          receiveShadow
+          renderOrder={0}
+        >
+          <planeGeometry args={[20000, 20000]} />
+          <shadowMaterial transparent opacity={0.3} depthWrite={false} />
         </mesh>
         {is90Snapped && interactionMode === 'CREATE' && activeChainStartId && (
           <group position={nodes[activeChainStartId].pos}>
@@ -449,7 +481,7 @@ function App() {
         </div>
       </div>
 
-      <Canvas shadows flat>
+      <Canvas shadows={{ type: THREE.PCFShadowMap }} flat>
         <color attach="background" args={['white']} />
         {isPerspective ? <PerspectiveCamera makeDefault position={[30, -30, 30]} up={[0, 0, 1]} fov={45} /> : <OrthographicCamera makeDefault position={[0, 0, 50]} up={[0, 1, 0]} zoom={20} far={1000} near={-1000} />}
         <OrbitControls ref={orbitRef} makeDefault enableRotate={isPerspective} />
@@ -460,25 +492,48 @@ function App() {
           intensity={1.2} 
           castShadow 
           shadow-mapSize={[2048, 2048]} 
-          shadow-camera-left={-100} 
-          shadow-camera-right={100} 
-          shadow-camera-top={100} 
-          shadow-camera-bottom={-100}
+          shadow-camera-left={-200} 
+          shadow-camera-right={200} 
+          shadow-camera-top={200} 
+          shadow-camera-bottom={-200}
+          shadow-camera-near={1}
+          shadow-camera-far={500}
         />
 
         <AdaptiveGrid visible={showGrid} setSnapStep={setSnapStep} />
         <SceneController />
         
-        <mesh receiveShadow position={[0, 0, minZ]} rotation={[-Math.PI / 2, 0, 0]} renderOrder={0}>
-          <planeGeometry args={[20000, 20000]} />
-          <shadowMaterial transparent opacity={0.3} polygonOffset polygonOffsetFactor={4} polygonOffsetUnits={4} />
-        </mesh>
-
         {interactionMode === 'CREATE' && activeChainStartId && <Line points={[nodes[activeChainStartId].pos, mousePointer]} color={is90Snapped ? "yellow" : "orange"} lineWidth={3} depthTest={false} />}
         {interactionMode === 'CREATE' && <mesh position={[mousePointer.x, mousePointer.y, mousePointer.z + 0.05]}><sphereGeometry args={[0.2]} /><meshBasicMaterial color={is90Snapped ? "yellow" : "orange"} depthTest={false} /></mesh>}
         <group renderOrder={10}>
-          {Object.values(nodes).map((n) => <Node key={n.id} node={n} isSelected={selectedNodeId === n.id} isHovered={hoveredNodeId === n.id} onSelect={() => { setSelectedNodeId(n.id); setSelectedEdgeId(null); }} onChange={(newData) => setNodes(prev => ({ ...prev, [newData.id]: newData }))} interactionMode={interactionMode} editMode={editMode} axisLock={axisLock} snapVec={snapVec} orbitControlsRef={orbitRef} />)}
-          {edges.map((e) => <Segment key={e.id} edge={e} nodesMap={nodes} isSelected={selectedEdgeId === e.id} isHovered={hoveredEdgeId === e.id} onSelect={() => { setSelectedEdgeId(e.id); setSelectedNodeId(null); }} interactionMode={interactionMode} />)}
+          {Object.values(nodes).map((n) => (
+            <Node 
+              key={n.id} 
+              node={n} 
+              isSelected={selectedNodeId === n.id} 
+              isHovered={hoveredNodeId === n.id} 
+              onSelect={() => { setSelectedNodeId(n.id); setSelectedEdgeId(null); }} 
+              onSceneClick={handleSceneClick} 
+              onChange={(newData) => setNodes(prev => ({ ...prev, [newData.id]: newData }))} 
+              interactionMode={interactionMode} 
+              editMode={editMode} 
+              axisLock={axisLock} 
+              snapVec={snapVec} 
+              orbitControlsRef={orbitRef} 
+            />
+          ))}
+          {edges.map((e) => (
+            <Segment 
+              key={e.id} 
+              edge={e} 
+              nodesMap={nodes} 
+              isSelected={selectedEdgeId === e.id} 
+              isHovered={hoveredEdgeId === e.id} 
+              onSelect={() => { setSelectedEdgeId(e.id); setSelectedNodeId(null); }} 
+              onSceneClick={handleSceneClick} 
+              interactionMode={interactionMode} 
+            />
+          ))}
         </group>
         {layers.map(layer => (
           <group key={layer.id} position={layer.position} scale={[layer.scale, layer.scale, 1]} visible={layer.visible} renderOrder={1} onPointerMove={(e: any) => e.stopPropagation()} onClick={(e: any) => e.stopPropagation()}>
