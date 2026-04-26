@@ -89,6 +89,16 @@ function DragHandle({ direction, color, nodePos, onUpdate, onStart, onEnd, onSel
   );
 }
 
+function AxisLines() {
+  return (
+    <group renderOrder={0}>
+      <Line points={[[-1000, 0, 0], [1000, 0, 0]]} color={X_COLOR} lineWidth={1} transparent opacity={0.5} depthTest={false} />
+      <Line points={[[0, -1000, 0], [0, 1000, 0]]} color={Y_COLOR} lineWidth={1} transparent opacity={0.5} depthTest={false} />
+      <Line points={[[0, 0, -1000], [0, 0, 1000]]} color={Z_COLOR} lineWidth={1} transparent opacity={0.5} depthTest={false} />
+    </group>
+  );
+}
+
 function Node({ node, isSelected, isHovered, onSelect, onSceneClick, interactionMode, editMode, axisLock, snapVec, onChange, orbitControlsRef }: { 
   node: NodeData, isSelected: boolean, isHovered: boolean, onSelect: () => void, onSceneClick: (p: THREE.Vector3, nodeId?: string, edgeId?: string) => void, interactionMode: InteractionMode, editMode: EditMode, axisLock: AxisLock, snapVec: (v: THREE.Vector3) => THREE.Vector3, onChange: (d: NodeData) => void, orbitControlsRef: any
 }) {
@@ -132,6 +142,9 @@ function Node({ node, isSelected, isHovered, onSelect, onSceneClick, interaction
         <sphereGeometry args={[isHovered ? 0.45 : 0.25, 32, 32]} />
         <meshBasicMaterial color={isSelected ? "yellow" : (isHovered ? "orange" : "#2222ff")} depthTest={false} />
       </mesh>
+      
+      {/* Vertical helper line to Z=0 */}
+      <Line points={[[0, 0, 0], [0, 0, -node.pos.z]]} color="#999" lineWidth={1} transparent opacity={0.4} dashed dashSize={0.5} gapSize={0.2} depthTest={false} />
 
       {isSelected && interactionMode === 'SELECT' && (
         <group ref={selectionGroupRef} renderOrder={1000} rotation={[-Math.PI / 2, 0, 0]}>
@@ -197,6 +210,13 @@ function Segment({ edge, nodesMap, isSelected, isHovered, onSelect, onSceneClick
   if (!n1 || !n2) return null;
   const curve = useMemo(() => new THREE.CubicBezierCurve3(n1.pos, n1.right_h, n2.left_h, n2.pos), [n1.pos, n1.right_h, n2.left_h, n2.pos]);
   const points = useMemo(() => curve.getPoints(24), [curve]);
+  const length = useMemo(() => curve.getLength(), [curve]);
+  const angle = useMemo(() => {
+    const dir = n2.pos.clone().sub(n1.pos).setZ(0).normalize();
+    let ang = Math.atan2(dir.y, dir.x) * 180 / Math.PI;
+    return ang < 0 ? ang + 360 : ang;
+  }, [n1.pos, n2.pos]);
+
   const roadGeometry = useMemo(() => {
     const pathPoints = edge.isCurved ? RoadGeometry.generateBezierPath(n1, n2, 24) : [{ pos: n1.pos, ll: n1.lane_l, lr: n1.lane_r, sw_l: n1.sw_l, sr: n1.sw_r }, { pos: n2.pos, ll: n2.lane_l, lr: n2.lane_r, sw_l: n2.sw_l, sr: n2.sw_r }];
     const edgesArr = RoadGeometry.calculateAllEdges(pathPoints.map(p => ({ pos: p.pos, ll: p.ll, lr: p.lr, sl: (p as any).sl || p.sw_l, sr: (p as any).sr || p.sw_r })) as any);
@@ -208,6 +228,7 @@ function Segment({ edge, nodesMap, isSelected, isHovered, onSelect, onSceneClick
     const createG = (v: number[], idx: number[]) => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3)); g.setIndex(idx); g.computeVertexNormals(); return g; };
     return { road: createG(roadV, roadI), sw: createG(swV, swI) };
   }, [n1, n2, edge.isCurved]);
+
   return (
     <group renderOrder={5} userData={{ edgeId: edge.id }}>
       <Line points={[n1.pos, n2.pos]} color={isSelected && !edge.isCurved ? "yellow" : (isHovered ? "orange" : "#999")} lineWidth={isHovered ? 4 : 2} transparent opacity={0.3} depthTest={false} />
@@ -218,6 +239,15 @@ function Segment({ edge, nodesMap, isSelected, isHovered, onSelect, onSceneClick
       <mesh geometry={roadGeometry.sw} renderOrder={7} castShadow>
         <meshLambertMaterial color="#6699ff" side={THREE.DoubleSide} polygonOffset={true} polygonOffsetFactor={-2} polygonOffsetUnits={-2} />
       </mesh>
+      
+      {(isSelected || isHovered) && (
+        <Html position={n1.pos.clone().lerp(n2.pos, 0.5)}>
+          <div style={{ background: 'rgba(0,0,0,0.7)', color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', whiteSpace: 'nowrap', pointerEvents: 'none' }}>
+            {length.toFixed(2)}m | {angle.toFixed(1)}°
+          </div>
+        </Html>
+      )}
+
       <mesh position={n1.pos.clone().lerp(n2.pos, 0.5)} quaternion={new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0), n2.pos.clone().sub(n1.pos).normalize())} 
         onClick={(e) => { 
           if (interactionMode === 'SELECT') {
@@ -501,9 +531,23 @@ function App() {
         />
 
         <AdaptiveGrid visible={showGrid} setSnapStep={setSnapStep} />
+        <AxisLines />
         <SceneController />
         
-        {interactionMode === 'CREATE' && activeChainStartId && <Line points={[nodes[activeChainStartId].pos, mousePointer]} color={is90Snapped ? "yellow" : "orange"} lineWidth={3} depthTest={false} />}
+        {interactionMode === 'CREATE' && activeChainStartId && (
+          <>
+            <Line points={[nodes[activeChainStartId].pos, mousePointer]} color={is90Snapped ? "yellow" : "orange"} lineWidth={3} depthTest={false} />
+            <Html position={nodes[activeChainStartId].pos.clone().lerp(mousePointer, 0.5)}>
+              <div style={{ background: 'rgba(0,0,0,0.7)', color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', whiteSpace: 'nowrap', pointerEvents: 'none' }}>
+                {nodes[activeChainStartId].pos.distanceTo(mousePointer).toFixed(2)}m | {(() => {
+                  const dir = mousePointer.clone().sub(nodes[activeChainStartId].pos).setZ(0).normalize();
+                  let ang = Math.atan2(dir.y, dir.x) * 180 / Math.PI;
+                  return (ang < 0 ? ang + 360 : ang).toFixed(1);
+                })()}°
+              </div>
+            </Html>
+          </>
+        )}
         {interactionMode === 'CREATE' && <mesh position={[mousePointer.x, mousePointer.y, mousePointer.z + 0.05]}><sphereGeometry args={[0.2]} /><meshBasicMaterial color={is90Snapped ? "yellow" : "orange"} depthTest={false} /></mesh>}
         <group renderOrder={10}>
           {Object.values(nodes).map((n) => (
