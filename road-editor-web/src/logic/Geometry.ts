@@ -18,7 +18,7 @@ export interface EdgeData {
   n2: string; // ID do nó final
   resMode?: ResolutionMode;
   resValue?: number;
-  resolution?: number; // Deprecated but kept for compatibility during migration
+  resolution?: number; // Deprecated but kept for compatibility
 }
 
 export interface PathPoint {
@@ -38,41 +38,50 @@ export class RoadGeometry {
 
     const curve = new THREE.CubicBezierCurve3(n1.pos, h1, h2, n2.pos);
     
-    let divisionCount = segments;
     const mode = edge?.resMode || 'FIXED';
     const val = edge?.resValue || (edge?.resolution || segments);
 
-    if (mode === 'FIXED') {
-      divisionCount = val;
-    } else if (mode === 'LENGTH') {
-      const length = curve.getLength();
-      divisionCount = Math.max(1, Math.ceil(length / (val || 1)));
-    } else if (mode === 'ANGLE') {
-      // Sample the curve to check angular changes
-      const samples = 100;
-      let totalAngle = 0;
-      let lastDir = curve.getTangent(0).normalize();
+    const createPP = (t: number): PathPoint => ({
+      pos: curve.getPoint(t),
+      ll: n1.lane_l + (n2.lane_l - n1.lane_l) * t,
+      lr: n1.lane_r + (n2.lane_r - n1.lane_r) * t,
+      sl: n1.sw_l + (n2.sw_l - n1.sw_l) * t,
+      sr: n1.sw_r + (n2.sw_r - n1.sw_r) * t
+    });
+
+    if (mode === 'ANGLE') {
+      // ADAPTIVE ANGLE SAMPLING
+      points.push(createPP(0));
+      let lastTangent = curve.getTangent(0).normalize();
+      const samples = 200; // High resolution sampling to find inflection points
+      const threshold = val || 10;
+      
+      let accumulatedAngle = 0;
       for (let i = 1; i <= samples; i++) {
-        const currentDir = curve.getTangent(i / samples).normalize();
-        totalAngle += lastDir.angleTo(currentDir);
-        lastDir = currentDir;
+        const t = i / samples;
+        const currentTangent = curve.getTangent(t).normalize();
+        const deltaAngle = lastTangent.angleTo(currentTangent) * (180 / Math.PI);
+        accumulatedAngle += deltaAngle;
+
+        if (accumulatedAngle >= threshold || i === samples) {
+          points.push(createPP(t));
+          lastTangent = currentTangent;
+          accumulatedAngle = 0;
+        }
       }
-      const totalDegrees = totalAngle * (180 / Math.PI);
-      divisionCount = Math.max(1, Math.ceil(totalDegrees / (val || 10)));
+    } else {
+      // UNIFORM DISTANCE SAMPLING for FIXED and LENGTH
+      const divisionCount = mode === 'LENGTH' 
+        ? Math.max(1, Math.ceil(curve.getLength() / (val || 1)))
+        : Math.round(val || 24);
+
+      for (let i = 0; i <= divisionCount; i++) {
+        const u = i / divisionCount;
+        const t = curve.getUtoTmapping(u);
+        points.push(createPP(t));
+      }
     }
 
-    for (let i = 0; i <= divisionCount; i++) {
-      const t = i / divisionCount;
-      const p = curve.getPoint(t);
-
-      points.push({
-        pos: p,
-        ll: n1.lane_l + (n2.lane_l - n1.lane_l) * t,
-        lr: n1.lane_r + (n2.lane_r - n1.lane_r) * t,
-        sl: n1.sw_l + (n2.sw_l - n1.sw_l) * t,
-        sr: n1.sw_r + (n2.sw_r - n1.sw_r) * t
-      });
-    }
     return points;
   }
 
