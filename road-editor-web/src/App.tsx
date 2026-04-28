@@ -198,11 +198,28 @@ function App() {
                       <NumericInput label="Sidewalk L" value={n1.sw_l} onChange={v => updateEdgeNodes('sw_l', v)} />
                       <NumericInput label="Sidewalk R" value={n1.sw_r} onChange={v => updateEdgeNodes('sw_r', v)} />
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', alignItems: 'end' }}>
-                      <NumericInput label="Resolution" value={edge.resolution || 0} onChange={v => {
-                        setEdges(prev => prev.map(e => e.id === selectedEdgeId ? { ...e, resolution: v > 0 ? Math.round(v) : undefined } : e));
-                      }} />
-                      <div style={{ fontSize: '0.6rem', color: '#666', fontStyle: 'italic', marginBottom: '5px' }}>0 = Auto</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', border: '1px solid #ddd', padding: '10px', borderRadius: '8px', background: 'rgba(255,255,255,0.5)' }}>
+                      <label style={{ fontSize: '0.7rem', fontWeight: 'bold', color: '#666' }}>Res. Mode
+                        <select 
+                          value={edge.resMode || 'FIXED'} 
+                          onChange={(e) => {
+                            const mode = e.target.value as any;
+                            setEdges(prev => prev.map(ed => ed.id === selectedEdgeId ? { ...ed, resMode: mode, resValue: mode === 'FIXED' ? 24 : (mode === 'LENGTH' ? 2 : 10) } : ed));
+                          }}
+                          style={{ width: '100%', padding: '4px', borderRadius: '4px', border: '1px solid #ccc' }}
+                        >
+                          <option value="FIXED">Fixed Divisions</option>
+                          <option value="LENGTH">By Length (m)</option>
+                          <option value="ANGLE">By Angle (°)</option>
+                        </select>
+                      </label>
+                      <NumericInput 
+                        label={edge.resMode === 'LENGTH' ? "Interval (meters)" : (edge.resMode === 'ANGLE' ? "Interval (degrees)" : "Total Divisions")} 
+                        value={edge.resValue || edge.resolution || (edge.resMode === 'FIXED' ? 24 : (edge.resMode === 'LENGTH' ? 2 : 10))} 
+                        onChange={v => {
+                          setEdges(prev => prev.map(ed => ed.id === selectedEdgeId ? { ...ed, resValue: v, resolution: undefined } : ed));
+                        }} 
+                      />
                     </div>
                     <button className="tool-btn" onClick={() => {
                       const dir = nodes[edge.n2].pos.clone().sub(nodes[edge.n1].pos);

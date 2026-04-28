@@ -34,7 +34,7 @@ export function EditorSegment({ edge, nodesMap, isSelected, isHovered, onSelect,
   }, [n1.pos, n2.pos]);
 
   const roadGeometry = useMemo(() => {
-    const pathPoints = RoadGeometry.generateBezierPath(n1, n2, edge.id, resolution);
+    const pathPoints = RoadGeometry.generateBezierPath(n1, n2, edge.id, resolution, edge);
     const edgesArr = RoadGeometry.calculateAllEdges(pathPoints.map(p => ({ pos: p.pos, ll: p.ll, lr: p.lr, sl: p.sl, sr: p.sr })) as any);
 
     const parts = {

@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 
+export type ResolutionMode = 'FIXED' | 'LENGTH' | 'ANGLE';
+
 export interface NodeData {
   id: string;
   pos: THREE.Vector3;
@@ -14,7 +16,9 @@ export interface EdgeData {
   id: string;
   n1: string; // ID do nó inicial
   n2: string; // ID do nó final
-  resolution?: number; // Override manual de resolução
+  resMode?: ResolutionMode;
+  resValue?: number;
+  resolution?: number; // Deprecated but kept for compatibility during migration
 }
 
 export interface PathPoint {
@@ -26,22 +30,40 @@ export interface PathPoint {
 }
 
 export class RoadGeometry {
-  static generateBezierPath(n1: NodeData, n2: NodeData, edgeId: string, segments: number): PathPoint[] {
+  static generateBezierPath(n1: NodeData, n2: NodeData, edgeId: string, segments: number, edge?: EdgeData): PathPoint[] {
     const points: PathPoint[] = [];
-
-    // Unificação: Se o handle não existir, usamos a posição a 33%/66% da reta (Bezier "reta")
     const dir = n2.pos.clone().sub(n1.pos);
     const h1 = n1.handles[edgeId] || n1.pos.clone().add(dir.clone().multiplyScalar(0.33));
     const h2 = n2.handles[edgeId] || n1.pos.clone().add(dir.clone().multiplyScalar(0.66));
 
-    for (let i = 0; i <= segments; i++) {
-      const t = i / segments;
-      const inv = 1.0 - t;
-      const p = new THREE.Vector3(
-        Math.pow(inv, 3) * n1.pos.x + 3 * Math.pow(inv, 2) * t * h1.x + 3 * inv * Math.pow(t, 2) * h2.x + Math.pow(t, 3) * n2.pos.x,
-        Math.pow(inv, 3) * n1.pos.y + 3 * Math.pow(inv, 2) * t * h1.y + 3 * inv * Math.pow(t, 2) * h2.y + Math.pow(t, 3) * n2.pos.y,
-        Math.pow(inv, 3) * n1.pos.z + 3 * Math.pow(inv, 2) * t * h1.z + 3 * inv * Math.pow(t, 2) * h2.z + Math.pow(t, 3) * n2.pos.z
-      );
+    const curve = new THREE.CubicBezierCurve3(n1.pos, h1, h2, n2.pos);
+    
+    let divisionCount = segments;
+    const mode = edge?.resMode || 'FIXED';
+    const val = edge?.resValue || (edge?.resolution || segments);
+
+    if (mode === 'FIXED') {
+      divisionCount = val;
+    } else if (mode === 'LENGTH') {
+      const length = curve.getLength();
+      divisionCount = Math.max(1, Math.ceil(length / (val || 1)));
+    } else if (mode === 'ANGLE') {
+      // Sample the curve to check angular changes
+      const samples = 100;
+      let totalAngle = 0;
+      let lastDir = curve.getTangent(0).normalize();
+      for (let i = 1; i <= samples; i++) {
+        const currentDir = curve.getTangent(i / samples).normalize();
+        totalAngle += lastDir.angleTo(currentDir);
+        lastDir = currentDir;
+      }
+      const totalDegrees = totalAngle * (180 / Math.PI);
+      divisionCount = Math.max(1, Math.ceil(totalDegrees / (val || 10)));
+    }
+
+    for (let i = 0; i <= divisionCount; i++) {
+      const t = i / divisionCount;
+      const p = curve.getPoint(t);
 
       points.push({
         pos: p,
@@ -53,8 +75,6 @@ export class RoadGeometry {
     }
     return points;
   }
-
-
 
   static calculateAllEdges(allData: PathPoint[]): any[] {
     const edges: any[] = [];
