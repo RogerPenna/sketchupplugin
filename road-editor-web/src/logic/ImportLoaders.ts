@@ -36,7 +36,7 @@ export class ImportLoaders {
     context.fillStyle = '#ffffff';
     context.fillRect(0, 0, canvas.width, canvas.height);
     
-    await page.render({ canvasContext: context, viewport }).promise;
+    await page.render({ canvasContext: context, viewport, canvas }).promise;
     
     // Hard Contrast Boost
     const imgData = context.getImageData(0, 0, canvas.width, canvas.height);

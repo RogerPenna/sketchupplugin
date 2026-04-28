@@ -3,8 +3,7 @@ import * as THREE from 'three';
 export interface NodeData {
   id: string;
   pos: THREE.Vector3;
-  left_h: THREE.Vector3;
-  right_h: THREE.Vector3;
+  handles: Record<string, THREE.Vector3>; // Mapeado por ID da estrada (Edge ID)
   lane_l: number;
   lane_r: number;
   sw_l: number;
@@ -15,7 +14,7 @@ export interface EdgeData {
   id: string;
   n1: string; // ID do nó inicial
   n2: string; // ID do nó final
-  isCurved: boolean;
+  resolution?: number; // Override manual de resolução
 }
 
 export interface PathPoint {
@@ -27,16 +26,23 @@ export interface PathPoint {
 }
 
 export class RoadGeometry {
-  static generateBezierPath(n1: NodeData, n2: NodeData, segments: number): PathPoint[] {
+  static generateBezierPath(n1: NodeData, n2: NodeData, edgeId: string, segments: number): PathPoint[] {
     const points: PathPoint[] = [];
+
+    // Unificação: Se o handle não existir, usamos a posição a 33%/66% da reta (Bezier "reta")
+    const dir = n2.pos.clone().sub(n1.pos);
+    const h1 = n1.handles[edgeId] || n1.pos.clone().add(dir.clone().multiplyScalar(0.33));
+    const h2 = n2.handles[edgeId] || n1.pos.clone().add(dir.clone().multiplyScalar(0.66));
+
     for (let i = 0; i <= segments; i++) {
       const t = i / segments;
       const inv = 1.0 - t;
       const p = new THREE.Vector3(
-        Math.pow(inv, 3) * n1.pos.x + 3 * Math.pow(inv, 2) * t * n1.right_h.x + 3 * inv * Math.pow(t, 2) * n2.left_h.x + Math.pow(t, 3) * n2.pos.x,
-        Math.pow(inv, 3) * n1.pos.y + 3 * Math.pow(inv, 2) * t * n1.right_h.y + 3 * inv * Math.pow(t, 2) * n2.left_h.y + Math.pow(t, 3) * n2.pos.y,
-        Math.pow(inv, 3) * n1.pos.z + 3 * Math.pow(inv, 2) * t * n1.right_h.z + 3 * inv * Math.pow(t, 2) * n2.left_h.z + Math.pow(t, 3) * n2.pos.z
+        Math.pow(inv, 3) * n1.pos.x + 3 * Math.pow(inv, 2) * t * h1.x + 3 * inv * Math.pow(t, 2) * h2.x + Math.pow(t, 3) * n2.pos.x,
+        Math.pow(inv, 3) * n1.pos.y + 3 * Math.pow(inv, 2) * t * h1.y + 3 * inv * Math.pow(t, 2) * h2.y + Math.pow(t, 3) * n2.pos.y,
+        Math.pow(inv, 3) * n1.pos.z + 3 * Math.pow(inv, 2) * t * h1.z + 3 * inv * Math.pow(t, 2) * h2.z + Math.pow(t, 3) * n2.pos.z
       );
+
       points.push({
         pos: p,
         ll: n1.lane_l + (n2.lane_l - n1.lane_l) * t,
@@ -47,6 +53,8 @@ export class RoadGeometry {
     }
     return points;
   }
+
+
 
   static calculateAllEdges(allData: PathPoint[]): any[] {
     const edges: any[] = [];
