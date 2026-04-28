@@ -95,9 +95,10 @@ export class RoadGeometry {
         ? Math.max(1, Math.ceil(curve.getLength() / (val || 1)))
         : Math.round(val || 24);
 
+      const length = curve.getLength();
       for (let i = 0; i <= divisionCount; i++) {
         const u = i / divisionCount;
-        const t = curve.getUtoTmapping(u);
+        const t = curve.getUtoTmapping(u, u * length);
         points.push(createPP(t));
       }
     }

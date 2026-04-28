@@ -70,32 +70,61 @@ export function useRoadEditor() {
     
     if (!targetId && targetEdgeId) {
         const edge = edges.find(ed => ed.id === targetEdgeId)!;
-        targetId = addNode(point);
-        const e1Id = generateId("e");
-        const e2Id = generateId("e");
+        const nStartOrig = nodes[edge.n1];
+        const nEndOrig = nodes[edge.n2];
+        if (nStartOrig && nEndOrig) {
+          const dirOrig = nEndOrig.pos.clone().sub(nStartOrig.pos);
+          const h1Orig = nStartOrig.handles[edge.id] || nStartOrig.pos.clone().add(dirOrig.clone().multiplyScalar(0.33));
+          const h2Orig = nEndOrig.handles[edge.id] || nStartOrig.pos.clone().add(dirOrig.clone().multiplyScalar(0.66));
+          const curve = new THREE.CubicBezierCurve3(nStartOrig.pos, h1Orig, h2Orig, nEndOrig.pos);
 
-        setEdges(prev => {
-           const filtered = prev.filter(ed => ed.id !== targetEdgeId);
-           return [...filtered, 
-             { id: e1Id, n1: edge.n1, n2: targetId! }, 
-             { id: e2Id, n1: targetId!, n2: edge.n2 }
-           ];
-        });
+          // Find closest t to the clicked point
+          let t = 0.5;
+          let minDist = Infinity;
+          for (let i = 0; i <= 100; i++) {
+            const testT = i / 100;
+            const dist = curve.getPoint(testT).distanceTo(point);
+            if (dist < minDist) { minDist = dist; t = testT; }
+          }
 
-        setNodes(prev => {
-          const nStart = prev[edge.n1], nMid = prev[targetId!], nEnd = prev[edge.n2];
-          const d1 = nMid.pos.clone().sub(nStart.pos), d2 = nEnd.pos.clone().sub(nMid.pos);
-          return {
-            ...prev,
-            [edge.n1]: { ...nStart, handles: { ...nStart.handles, [e1Id]: nStart.pos.clone().add(d1.clone().multiplyScalar(0.33)) } },
-            [targetId!]: { ...nMid, handles: { 
-              ...nMid.handles, 
-              [e1Id]: nStart.pos.clone().add(d1.clone().multiplyScalar(0.66)),
-              [e2Id]: nMid.pos.clone().add(d2.clone().multiplyScalar(0.33))
-            } },
-            [edge.n2]: { ...nEnd, handles: { ...nEnd.handles, [e2Id]: nMid.pos.clone().add(d2.clone().multiplyScalar(0.66)) } }
-          };
-        });
+          // Split at t using De Casteljau
+          const p0 = nStartOrig.pos, p1 = h1Orig, p2 = h2Orig, p3 = nEndOrig.pos;
+          const p01 = new THREE.Vector3().lerpVectors(p0, p1, t);
+          const p12 = new THREE.Vector3().lerpVectors(p1, p2, t);
+          const p23 = new THREE.Vector3().lerpVectors(p2, p3, t);
+          const p012 = new THREE.Vector3().lerpVectors(p01, p12, t);
+          const p123 = new THREE.Vector3().lerpVectors(p12, p23, t);
+          const p0123 = new THREE.Vector3().lerpVectors(p012, p123, t);
+
+          targetId = addNode(p0123);
+          const e1Id = generateId("e");
+          const e2Id = generateId("e");
+
+          setEdges(prev => {
+            const filtered = prev.filter(ed => ed.id !== targetEdgeId);
+            return [...filtered, 
+              { ...edge, id: e1Id, n1: edge.n1, n2: targetId! }, 
+              { ...edge, id: e2Id, n1: targetId!, n2: edge.n2 }
+            ];
+          });
+
+          setNodes(prev => {
+            const nStart = { ...prev[edge.n1] };
+            const nEnd = { ...prev[edge.n2] };
+            const nMid = { ...prev[targetId!] };
+
+            // Remove old handle, add new ones
+            delete nStart.handles[edge.id];
+            delete nEnd.handles[edge.id];
+
+            nStart.handles[e1Id] = p01;
+            nMid.handles[e1Id] = p012;
+            nMid.handles[e2Id] = p123;
+            nEnd.handles[e2Id] = p23;
+
+            return { ...prev, [nStart.id]: nStart, [nEnd.id]: nEnd, [nMid.id]: nMid };
+          });
+        }
     }
 
     if (!targetId) {
