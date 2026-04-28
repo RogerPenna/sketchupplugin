@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export type ResolutionMode = 'FIXED' | 'LENGTH' | 'ANGLE';
+export type ResolutionMode = 'FIXED' | 'LENGTH' | 'ANGLE' | 'ERROR';
 
 export interface NodeData {
   id: string;
@@ -18,7 +18,7 @@ export interface EdgeData {
   n2: string; // ID do nó final
   resMode?: ResolutionMode;
   resValue?: number;
-  resolution?: number; // Deprecated but kept for compatibility
+  resolution?: number; // Deprecated
 }
 
 export interface PathPoint {
@@ -50,27 +50,47 @@ export class RoadGeometry {
     });
 
     if (mode === 'ANGLE') {
-      // ADAPTIVE ANGLE SAMPLING
       points.push(createPP(0));
       let lastTangent = curve.getTangent(0).normalize();
-      const samples = 200; // High resolution sampling to find inflection points
+      const samples = 200;
       const threshold = val || 10;
-      
       let accumulatedAngle = 0;
       for (let i = 1; i <= samples; i++) {
         const t = i / samples;
         const currentTangent = curve.getTangent(t).normalize();
-        const deltaAngle = lastTangent.angleTo(currentTangent) * (180 / Math.PI);
-        accumulatedAngle += deltaAngle;
-
+        accumulatedAngle += lastTangent.angleTo(currentTangent) * (180 / Math.PI);
         if (accumulatedAngle >= threshold || i === samples) {
           points.push(createPP(t));
           lastTangent = currentTangent;
           accumulatedAngle = 0;
         }
       }
+    } else if (mode === 'ERROR') {
+      // CHORD ERROR (SAGITTA) SAMPLING
+      points.push(createPP(0));
+      const threshold = val || 0.01; // Default 1cm
+      
+      const adaptive = (t1: number, t2: number) => {
+        const p1 = curve.getPoint(t1);
+        const p2 = curve.getPoint(t2);
+        const midT = (t1 + t2) / 2;
+        const pMid = curve.getPoint(midT);
+        
+        // Distance from pMid to the line segment p1-p2
+        const line = new THREE.Line3(p1, p2);
+        const closestPoint = new THREE.Vector3();
+        line.closestPointToPoint(pMid, true, closestPoint);
+        const dist = pMid.distanceTo(closestPoint);
+        
+        if (dist > threshold && (t2 - t1) > 0.001) {
+          adaptive(t1, midT);
+          adaptive(midT, t2);
+        } else {
+          points.push(createPP(t2));
+        }
+      };
+      adaptive(0, 1);
     } else {
-      // UNIFORM DISTANCE SAMPLING for FIXED and LENGTH
       const divisionCount = mode === 'LENGTH' 
         ? Math.max(1, Math.ceil(curve.getLength() / (val || 1)))
         : Math.round(val || 24);

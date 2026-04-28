@@ -211,11 +211,16 @@ function App() {
                           <option value="FIXED">Fixed Divisions</option>
                           <option value="LENGTH">By Length (m)</option>
                           <option value="ANGLE">By Angle (°)</option>
+                          <option value="ERROR">Chord Error (m)</option>
                         </select>
                       </label>
                       <NumericInput 
-                        label={edge.resMode === 'LENGTH' ? "Interval (meters)" : (edge.resMode === 'ANGLE' ? "Interval (degrees)" : "Total Divisions")} 
-                        value={edge.resValue || edge.resolution || (edge.resMode === 'FIXED' ? 24 : (edge.resMode === 'LENGTH' ? 2 : 10))} 
+                        label={
+                          edge.resMode === 'LENGTH' ? "Interval (meters)" : 
+                          (edge.resMode === 'ANGLE' ? "Interval (degrees)" : 
+                          (edge.resMode === 'ERROR' ? "Max Deviation (meters)" : "Total Divisions"))
+                        } 
+                        value={edge.resValue || edge.resolution || (edge.resMode === 'FIXED' ? 24 : (edge.resMode === 'LENGTH' ? 2 : (edge.resMode === 'ANGLE' ? 10 : 0.01)))} 
                         onChange={v => {
                           setEdges(prev => prev.map(ed => ed.id === selectedEdgeId ? { ...ed, resValue: v, resolution: undefined } : ed));
                         }} 
