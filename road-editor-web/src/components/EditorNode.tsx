@@ -88,6 +88,16 @@ export function EditorNode({ node, isSelected, isHovered, onSelect, onSceneClick
             <group key={edgeId}>
               <group position={h.clone().sub(node.pos)}>
                 <mesh renderOrder={1500}><sphereGeometry args={[0.15]} /><meshBasicMaterial color="yellow" depthTest={false} /></mesh>
+                
+                {/* Invisible larger picking sphere for the handle itself */}
+                <mesh 
+                  onPointerDown={(e) => e.stopPropagation()} 
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <sphereGeometry args={[0.4]} />
+                  <meshBasicMaterial visible={false} />
+                </mesh>
+
                 {(axisLock === 'none' || axisLock === 'xy') && (
                   <>
                     <DragHandle color="#ff3333" axisLock={axisLock} nodePos={h} direction={new THREE.Vector3(1,0,0)} onUpdate={(p) => updateHandle(edgeId, p)} onStart={() => toggleOrbit(true)} onEnd={() => toggleOrbit(false)} onSelect={onSelect} size={0.7} />

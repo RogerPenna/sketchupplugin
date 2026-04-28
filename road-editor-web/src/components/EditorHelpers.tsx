@@ -74,7 +74,10 @@ export function DragHandle({ direction, color, nodePos, onUpdate, onStart, onEnd
         <cylinderGeometry args={[0.025, 0.025, 1.0, 16]} />
         <meshBasicMaterial color={color} depthTest={false} transparent opacity={1.0} />
       </mesh>
-      <mesh position={[0, 0.7, 0]} visible={false}><cylinderGeometry args={[0.3, 0.3, 1.5, 8]} /></mesh>
+      <mesh position={[0, 0.7, 0]}>
+        <cylinderGeometry args={[0.3, 0.3, 1.5, 8]} />
+        <meshBasicMaterial visible={false} />
+      </mesh>
     </group>
   );
 }
