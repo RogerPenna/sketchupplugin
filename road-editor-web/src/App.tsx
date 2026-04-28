@@ -207,6 +207,46 @@ function App() {
                       <NumericInput label="Sidewalk R" value={n1.sw_r} onChange={v => updateEdgeNodes('sw_r', v)} />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', border: '1px solid #ddd', padding: '10px', borderRadius: '8px', background: 'rgba(255,255,255,0.5)' }}>
+                      <label style={{ fontSize: '0.7rem', fontWeight: 'bold', color: '#666' }}>Road Alignment
+                        <select 
+                          value={edge.alignment || 'CENTER'} 
+                          onChange={(e) => {
+                            pushHistory(nodes, edges);
+                            const align = e.target.value as any;
+                            setEdges(prev => prev.map(ed => {
+                              if (ed.id === selectedEdgeId) {
+                                const newEdge = { ...ed, alignment: align };
+                                // Auto-switch to ANGLE mode if it's currently FIXED or low-res
+                                if (align !== 'CENTER' && (!ed.resMode || ed.resMode === 'FIXED')) {
+                                  newEdge.resMode = 'ANGLE';
+                                  newEdge.resValue = 5; // Good default for tight turns
+                                }
+                                return newEdge;
+                              }
+                              return ed;
+                            }));
+                          }}
+                          style={{ width: '100%', padding: '4px', borderRadius: '4px', border: '1px solid #ccc' }}
+                        >
+                          <option value="CENTER">Center (Standard)</option>
+                          <option value="LEFT">Left Border (Inside)</option>
+                          <option value="RIGHT">Right Border (Inside)</option>
+                        </select>
+                      </label>
+                      <label style={{ fontSize: '0.7rem', fontWeight: 'bold', color: '#666' }}>Tight Turn Mode
+                        <select 
+                          value={edge.tightTurnMode || 'APEX'} 
+                          onChange={(e) => {
+                            pushHistory(nodes, edges);
+                            const mode = e.target.value as any;
+                            setEdges(prev => prev.map(ed => ed.id === selectedEdgeId ? { ...ed, tightTurnMode: mode } : ed));
+                          }}
+                          style={{ width: '100%', padding: '4px', borderRadius: '4px', border: '1px solid #ccc' }}
+                        >
+                          <option value="APEX">Apex (Fast/Pointy)</option>
+                          <option value="CLEAN">Clean (Smooth Offset)</option>
+                        </select>
+                      </label>
                       <label style={{ fontSize: '0.7rem', fontWeight: 'bold', color: '#666' }}>Res. Mode
                         <select 
                           value={edge.resMode || 'FIXED'} 

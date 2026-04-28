@@ -35,33 +35,47 @@ export function EditorSegment({ edge, nodesMap, isSelected, isHovered, onSelect,
 
   const roadGeometry = useMemo(() => {
     const pathPoints = RoadGeometry.generateBezierPath(n1, n2, edge.id, resolution, edge);
-    const edgesArr = RoadGeometry.calculateAllEdges(pathPoints.map(p => ({ pos: p.pos, ll: p.ll, lr: p.lr, sl: p.sl, sr: p.sr })) as any);
+    const edgesArr = RoadGeometry.calculateAllEdges(pathPoints.map(p => ({ 
+      pos: p.pos, ll: p.ll, lr: p.lr, sl: p.sl, sr: p.sr, 
+      tightTurnMode: p.tightTurnMode,
+      alignment: p.alignment 
+    })) as any);
 
     const parts = {
-      laneL: { v: [] as number[], i: [] as number[], li: [] as number[] },
-      laneR: { v: [] as number[], i: [] as number[], li: [] as number[] },
-      swL: { v: [] as number[], i: [] as number[], li: [] as number[] },
-      swR: { v: [] as number[], i: [] as number[], li: [] as number[] }
+      laneL: { v: [] as number[], i: [] as number[], li: [] as number[], c: [] as number[] },
+      laneR: { v: [] as number[], i: [] as number[], li: [] as number[], c: [] as number[] },
+      swL: { v: [] as number[], i: [] as number[], li: [] as number[], c: [] as number[] },
+      swR: { v: [] as number[], i: [] as number[], li: [] as number[], c: [] as number[] }
     };
 
-    const addQ = (p1: THREE.Vector3, p2: THREE.Vector3, p3: THREE.Vector3, p4: THREE.Vector3, target: { v: number[], i: number[], li: number[] }) => {
+    const addQ = (p1: THREE.Vector3, p2: THREE.Vector3, p3: THREE.Vector3, p4: THREE.Vector3, target: { v: number[], i: number[], li: number[], c: number[] }, baseColor: THREE.Color, shading: number) => {
       const off = target.v.length / 3; 
       target.v.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, p3.x, p3.y, p3.z, p4.x, p4.y, p4.z); 
       target.i.push(off, off + 1, off + 2, off, off + 2, off + 3);
       target.li.push(off, off + 1, off + 1, off + 2, off + 2, off + 3, off + 3, off);
+
+      const c = baseColor.clone().multiplyScalar(shading);
+      for (let i = 0; i < 4; i++) target.c.push(c.r, c.g, c.b);
     };
 
     for (let j = 0; j < edgesArr.length - 1; j++) { 
       const e1 = edgesArr[j], e2 = edgesArr[j+1]; 
-      addQ(e1.center, e1.l_lane, e2.l_lane, e2.center, parts.laneL);
-      addQ(e1.center, e2.center, e2.r_lane, e1.r_lane, parts.laneR);
-      addQ(e1.l_lane, e1.l_sw, e2.l_sw, e2.l_lane, parts.swL);
-      addQ(e1.r_lane, e2.r_lane, e2.r_sw, e1.r_sw, parts.swR);
+      
+      // Calculate shading based on longitudinal slope
+      const dir = e2.center.clone().sub(e1.center).normalize();
+      const slope = Math.abs(dir.z); // 0 to 1
+      const shading = 1.0 - (slope * 0.6); // Darken up to 60%
+
+      addQ(e1.center, e1.l_lane, e2.l_lane, e2.center, parts.laneL, new THREE.Color(isSelected ? "#add8e6" : "#ccc"), shading);
+      addQ(e1.center, e2.center, e2.r_lane, e1.r_lane, parts.laneR, new THREE.Color(isSelected ? "#b0e0e6" : "#d0d0d0"), shading);
+      addQ(e1.l_lane, e1.l_sw, e2.l_sw, e2.l_lane, parts.swL, new THREE.Color(isSelected ? "#c0e8f0" : "#ddd"), shading);
+      addQ(e1.r_lane, e2.r_lane, e2.r_sw, e1.r_sw, parts.swR, new THREE.Color(isSelected ? "#c8edf4" : "#e5e5e5"), shading);
     }
 
-    const createG = (v: number[], idx: number[], lIdx: number[]) => { 
+    const createG = (v: number[], idx: number[], lIdx: number[], c: number[]) => { 
       const g = new THREE.BufferGeometry(); 
       g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3)); 
+      g.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
       g.setIndex(idx); 
       g.computeVertexNormals(); 
       const lg = new THREE.BufferGeometry();
@@ -71,15 +85,15 @@ export function EditorSegment({ edge, nodesMap, isSelected, isHovered, onSelect,
     };
 
     return { 
-      laneL: createG(parts.laneL.v, parts.laneL.i, parts.laneL.li),
-      laneR: createG(parts.laneR.v, parts.laneR.i, parts.laneR.li),
-      swL: createG(parts.swL.v, parts.swL.i, parts.swL.li),
-      swR: createG(parts.swR.v, parts.swR.i, parts.swR.li)
+      laneL: createG(parts.laneL.v, parts.laneL.i, parts.laneL.li, parts.laneL.c),
+      laneR: createG(parts.laneR.v, parts.laneR.i, parts.laneR.li, parts.laneR.c),
+      swL: createG(parts.swL.v, parts.swL.i, parts.swL.li, parts.swL.c),
+      swR: createG(parts.swR.v, parts.swR.i, parts.swR.li, parts.swR.c)
     };
   }, [n1.pos, n2.pos, n1.handles, n2.handles,
       n1.lane_l, n1.lane_r, n1.sw_l, n1.sw_r,
       n2.lane_l, n2.lane_r, n2.sw_l, n2.sw_r,
-      edge.id, resolution, edge.resMode, edge.resValue]);
+      edge.id, resolution, edge.resMode, edge.resValue, isSelected]);
 
   return (
     <group renderOrder={5} userData={{ edgeId: edge.id }}>
@@ -87,14 +101,14 @@ export function EditorSegment({ edge, nodesMap, isSelected, isHovered, onSelect,
       <Line points={points} color={isSelected ? "#00ffff" : "#444"} lineWidth={isSelected ? 5 : 2} depthTest={false} />
       
       {[
-        { data: roadGeometry.laneL, color: isSelected ? "#add8e6" : "#ccc", offset: 1 },
-        { data: roadGeometry.laneR, color: isSelected ? "#b0e0e6" : "#d0d0d0", offset: 1 },
-        { data: roadGeometry.swL, color: isSelected ? "#c0e8f0" : "#ddd", offset: 2 },
-        { data: roadGeometry.swR, color: isSelected ? "#c8edf4" : "#e5e5e5", offset: 2 }
+        { data: roadGeometry.laneL, offset: 1 },
+        { data: roadGeometry.laneR, offset: 1 },
+        { data: roadGeometry.swL, offset: 2 },
+        { data: roadGeometry.swR, offset: 2 }
       ].map((part, idx) => (
         <group key={idx}>
           <mesh geometry={part.data.fill} castShadow>
-            <meshLambertMaterial color={part.color} side={THREE.DoubleSide} polygonOffset={true} polygonOffsetFactor={part.offset} polygonOffsetUnits={part.offset} />
+            <meshLambertMaterial vertexColors side={THREE.DoubleSide} polygonOffset={true} polygonOffsetFactor={part.offset} polygonOffsetUnits={part.offset} />
           </mesh>
           <lineSegments geometry={part.data.wire}>
             <lineBasicMaterial color={isSelected ? "#005577" : "#777"} transparent opacity={0.8} depthTest={true} />
