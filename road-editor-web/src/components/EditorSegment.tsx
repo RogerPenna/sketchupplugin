@@ -79,7 +79,7 @@ export function EditorSegment({ edge, nodesMap, isSelected, isHovered, onSelect,
   }, [n1.pos, n2.pos, n1.handles, n2.handles,
       n1.lane_l, n1.lane_r, n1.sw_l, n1.sw_r,
       n2.lane_l, n2.lane_r, n2.sw_l, n2.sw_r,
-      edge.id, resolution]);
+      edge.id, resolution, edge.resMode, edge.resValue]);
 
   return (
     <group renderOrder={5} userData={{ edgeId: edge.id }}>
