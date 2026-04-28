@@ -6,8 +6,8 @@ import { DragHandle } from './EditorHelpers'
 import type { InteractionMode, EditMode, AxisLock } from '../types/editor'
 import type { NodeData } from '../logic/Geometry'
 
-export function EditorNode({ node, isSelected, isHovered, onSelect, onSceneClick, interactionMode, editMode, axisLock, snapVec, onChange, orbitControlsRef }: { 
-  node: NodeData, isSelected: boolean, isHovered: boolean, onSelect: () => void, onSceneClick: (p: THREE.Vector3, nodeId?: string, edgeId?: string) => void, interactionMode: InteractionMode, editMode: EditMode, axisLock: AxisLock, snapVec: (v: THREE.Vector3) => THREE.Vector3, onChange: (d: NodeData) => void, orbitControlsRef: any
+export function EditorNode({ node, isSelected, isHovered, onSelect, onSceneClick, interactionMode, editMode, axisLock, snapVec, onChange, orbitControlsRef, onDragStart }: { 
+  node: NodeData, isSelected: boolean, isHovered: boolean, onSelect: () => void, onSceneClick: (p: THREE.Vector3, nodeId?: string, edgeId?: string) => void, interactionMode: InteractionMode, editMode: EditMode, axisLock: AxisLock, snapVec: (v: THREE.Vector3) => THREE.Vector3, onChange: (d: NodeData) => void, orbitControlsRef: any, onDragStart: () => void
 }) {
   const selectionGroupRef = useRef<THREE.Group>(null!);
 
@@ -73,12 +73,12 @@ export function EditorNode({ node, isSelected, isHovered, onSelect, onSceneClick
         <group>
           {(axisLock === 'none' || axisLock === 'xy') && (
             <>
-              <DragHandle color="#ff3333" axisLock={axisLock} nodePos={node.pos} direction={new THREE.Vector3(1, 0, 0)} onUpdate={moveNode} onStart={() => toggleOrbit(true)} onEnd={() => toggleOrbit(false)} onSelect={onSelect} />
-              <DragHandle color="#33ff33" axisLock={axisLock} nodePos={node.pos} direction={new THREE.Vector3(0, 1, 0)} onUpdate={moveNode} onStart={() => toggleOrbit(true)} onEnd={() => toggleOrbit(false)} onSelect={onSelect} />
+              <DragHandle color="#ff3333" axisLock={axisLock} nodePos={node.pos} direction={new THREE.Vector3(1, 0, 0)} onUpdate={moveNode} onStart={() => { onDragStart(); toggleOrbit(true); }} onEnd={() => toggleOrbit(false)} onSelect={onSelect} />
+              <DragHandle color="#33ff33" axisLock={axisLock} nodePos={node.pos} direction={new THREE.Vector3(0, 1, 0)} onUpdate={moveNode} onStart={() => { onDragStart(); toggleOrbit(true); }} onEnd={() => toggleOrbit(false)} onSelect={onSelect} />
             </>
           )}
           {(axisLock === 'none' || axisLock === 'z') && (
-            <DragHandle color="#3333ff" axisLock={axisLock} nodePos={node.pos} direction={new THREE.Vector3(0, 0, 1)} onUpdate={moveNode} onStart={() => toggleOrbit(true)} onEnd={() => toggleOrbit(false)} onSelect={onSelect} />
+            <DragHandle color="#3333ff" axisLock={axisLock} nodePos={node.pos} direction={new THREE.Vector3(0, 0, 1)} onUpdate={moveNode} onStart={() => { onDragStart(); toggleOrbit(true); }} onEnd={() => toggleOrbit(false)} onSelect={onSelect} />
           )}
         </group>
       )}
@@ -100,12 +100,12 @@ export function EditorNode({ node, isSelected, isHovered, onSelect, onSceneClick
 
                 {(axisLock === 'none' || axisLock === 'xy') && (
                   <>
-                    <DragHandle color="#ff3333" axisLock={axisLock} nodePos={h} direction={new THREE.Vector3(1,0,0)} onUpdate={(p) => updateHandle(edgeId, p)} onStart={() => toggleOrbit(true)} onEnd={() => toggleOrbit(false)} onSelect={onSelect} size={0.7} />
-                    <DragHandle color="#33ff33" axisLock={axisLock} nodePos={h} direction={new THREE.Vector3(0,1,0)} onUpdate={(p) => updateHandle(edgeId, p)} onStart={() => toggleOrbit(true)} onEnd={() => toggleOrbit(false)} onSelect={onSelect} size={0.7} />
+                    <DragHandle color="#ff3333" axisLock={axisLock} nodePos={h} direction={new THREE.Vector3(1,0,0)} onUpdate={(p) => updateHandle(edgeId, p)} onStart={() => { onDragStart(); toggleOrbit(true); }} onEnd={() => toggleOrbit(false)} onSelect={onSelect} size={0.7} />
+                    <DragHandle color="#33ff33" axisLock={axisLock} nodePos={h} direction={new THREE.Vector3(0,1,0)} onUpdate={(p) => updateHandle(edgeId, p)} onStart={() => { onDragStart(); toggleOrbit(true); }} onEnd={() => toggleOrbit(false)} onSelect={onSelect} size={0.7} />
                   </>
                 )}
                 {(axisLock === 'none' || axisLock === 'z') && (
-                  <DragHandle color="#3333ff" axisLock={axisLock} nodePos={h} direction={new THREE.Vector3(0,0,1)} onUpdate={(p) => updateHandle(edgeId, p)} onStart={() => toggleOrbit(true)} onEnd={() => toggleOrbit(false)} onSelect={onSelect} size={0.7} />
+                  <DragHandle color="#3333ff" axisLock={axisLock} nodePos={h} direction={new THREE.Vector3(0,0,1)} onUpdate={(p) => updateHandle(edgeId, p)} onStart={() => { onDragStart(); toggleOrbit(true); }} onEnd={() => toggleOrbit(false)} onSelect={onSelect} size={0.7} />
                 )}
               </group>
               <Line points={[[h.x - node.pos.x, h.y - node.pos.y, h.z - node.pos.z], [0,0,0]]} color="yellow" lineWidth={1} transparent opacity={0.6} depthTest={false} />

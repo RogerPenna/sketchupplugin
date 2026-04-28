@@ -8,6 +8,68 @@ import type { InteractionMode, EditMode, AxisLock } from '../types/editor';
 export function useRoadEditor() {
   const [nodes, setNodes] = useState<Record<string, NodeData>>({});
   const [edges, setEdges] = useState<EdgeData[]>([]);
+  const [history, setHistory] = useState<{ past: { nodes: Record<string, NodeData>, edges: EdgeData[] }[], future: { nodes: Record<string, NodeData>, edges: EdgeData[] }[] }>({ past: [], future: [] });
+
+  const pushHistory = useCallback((currentNodes: Record<string, NodeData>, currentEdges: EdgeData[]) => {
+    setHistory(prev => {
+      const newPast = [...prev.past, { nodes: JSON.parse(JSON.stringify(currentNodes)), edges: JSON.parse(JSON.stringify(currentEdges)) }];
+      if (newPast.length > 10) newPast.shift();
+      return { past: newPast, future: [] };
+    });
+  }, []);
+
+  const hydrateState = useCallback((state: { nodes: Record<string, NodeData>, edges: EdgeData[] }) => {
+    const newNodes: Record<string, NodeData> = {};
+    Object.entries(state.nodes).forEach(([id, node]) => {
+      const newHandles: Record<string, THREE.Vector3> = {};
+      Object.entries(node.handles).forEach(([hid, h]) => {
+        newHandles[hid] = new THREE.Vector3(h.x, h.y, h.z);
+      });
+      newNodes[id] = {
+        ...node,
+        pos: new THREE.Vector3(node.pos.x, node.pos.y, node.pos.z),
+        handles: newHandles
+      };
+    });
+    return { nodes: newNodes, edges: state.edges };
+  }, []);
+
+  const undo = useCallback(() => {
+    setHistory(prev => {
+      if (prev.past.length === 0) return prev;
+      const last = prev.past[prev.past.length - 1];
+      const newPast = prev.past.slice(0, -1);
+      
+      // Save current state to future
+      const newFuture = [{ nodes: JSON.parse(JSON.stringify(nodes)), edges: JSON.parse(JSON.stringify(edges)) }, ...prev.future];
+      if (newFuture.length > 10) newFuture.pop();
+
+      const hydrated = hydrateState(last);
+      setNodes(hydrated.nodes);
+      setEdges(hydrated.edges);
+      
+      return { past: newPast, future: newFuture };
+    });
+  }, [nodes, edges, hydrateState]);
+
+  const redo = useCallback(() => {
+    setHistory(prev => {
+      if (prev.future.length === 0) return prev;
+      const next = prev.future[0];
+      const newFuture = prev.future.slice(1);
+
+      // Save current state to past
+      const newPast = [...prev.past, { nodes: JSON.parse(JSON.stringify(nodes)), edges: JSON.parse(JSON.stringify(edges)) }];
+      if (newPast.length > 10) newPast.shift();
+
+      const hydrated = hydrateState(next);
+      setNodes(hydrated.nodes);
+      setEdges(hydrated.edges);
+
+      return { past: newPast, future: newFuture };
+    });
+  }, [nodes, edges, hydrateState]);
+
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
@@ -34,13 +96,15 @@ export function useRoadEditor() {
   const generateId = (prefix: string) => prefix + Math.random().toString(36).substring(2, 7);
 
   const addNode = useCallback((pos: THREE.Vector3) => {
+    pushHistory(nodes, edges);
     const id = generateId("n");
     const newNode = { id, pos: pos.clone(), handles: {}, lane_l: 3.5, lane_r: 3.5, sw_l: 1.5, sw_r: 1.5 };
     setNodes(prev => ({ ...prev, [id]: newNode }));
     return id;
-  }, []);
+  }, [nodes, edges, pushHistory]);
 
   const addEdge = useCallback((n1Id: string, n2Id: string) => {
+    pushHistory(nodes, edges);
     const id = generateId("e");
     setEdges(prev => [...prev, { id, n1: n1Id, n2: n2Id }]);
     
@@ -61,7 +125,7 @@ export function useRoadEditor() {
     });
     
     return id;
-  }, []);
+  }, [nodes, edges, pushHistory]);
 
   const handleSceneClick = useCallback((point: THREE.Vector3, targetNodeId?: string | null, targetEdgeId?: string | null) => {
     if (interactionMode !== 'CREATE') return;
@@ -69,6 +133,7 @@ export function useRoadEditor() {
     let targetId = targetNodeId;
     
     if (!targetId && targetEdgeId) {
+        pushHistory(nodes, edges);
         const edge = edges.find(ed => ed.id === targetEdgeId)!;
         const nStartOrig = nodes[edge.n1];
         const nEndOrig = nodes[edge.n2];
@@ -96,7 +161,10 @@ export function useRoadEditor() {
           const p123 = new THREE.Vector3().lerpVectors(p12, p23, t);
           const p0123 = new THREE.Vector3().lerpVectors(p012, p123, t);
 
-          targetId = addNode(p0123);
+          const midId = generateId("n");
+          const nMid = { id: midId, pos: p0123, handles: {}, lane_l: 3.5, lane_r: 3.5, sw_l: 1.5, sw_r: 1.5 };
+          targetId = midId;
+
           const e1Id = generateId("e");
           const e2Id = generateId("e");
 
@@ -111,23 +179,21 @@ export function useRoadEditor() {
           setNodes(prev => {
             const nStart = { ...prev[edge.n1] };
             const nEnd = { ...prev[edge.n2] };
-            const nMid = { ...prev[targetId!] };
+            const nMidFinal = { ...nMid };
 
             // Remove old handle, add new ones
             delete nStart.handles[edge.id];
             delete nEnd.handles[edge.id];
 
             nStart.handles[e1Id] = p01;
-            nMid.handles[e1Id] = p012;
-            nMid.handles[e2Id] = p123;
+            nMidFinal.handles[e1Id] = p012;
+            nMidFinal.handles[e2Id] = p123;
             nEnd.handles[e2Id] = p23;
 
-            return { ...prev, [nStart.id]: nStart, [nEnd.id]: nEnd, [nMid.id]: nMid };
+            return { ...prev, [nStart.id]: nStart, [nEnd.id]: nEnd, [nMidFinal.id]: nMidFinal };
           });
         }
-    }
-
-    if (!targetId) {
+    } else if (!targetId) {
         targetId = addNode(point);
     }
     
@@ -138,7 +204,7 @@ export function useRoadEditor() {
     setActiveChainStartId(targetId); 
     setSelectedNodeId(targetId);
     setSelectedEdgeId(null);
-  }, [interactionMode, activeChainStartId, edges, addNode, addEdge]);
+  }, [interactionMode, activeChainStartId, edges, nodes, addNode, addEdge, pushHistory]);
 
   const handleImport = async (type: 'pdf' | 'dxf') => {
     const input = document.createElement('input'); input.type = 'file'; input.accept = type === 'pdf' ? '.pdf' : '.dxf';
@@ -152,16 +218,21 @@ export function useRoadEditor() {
 
   useEffect(() => {
     const handleKD = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
+      if (e.ctrlKey && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
       if (e.key.toLowerCase() === 'w') setEditMode(p => p === 'MOVE_NODE' ? 'MOVE_BEZIER' : 'MOVE_NODE');
       if (e.key === 'ArrowUp') setAxisLock('z'); if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') setAxisLock('xy'); if (e.key === 'ArrowDown') setAxisLock('none');
       if (e.key === 'Escape') { setInteractionMode('SELECT'); setActiveChainStartId(null); }
     };
     window.addEventListener('keydown', handleKD); return () => window.removeEventListener('keydown', handleKD);
-  }, []);
+  }, [undo, redo]);
 
   return {
     nodes, setNodes,
     edges, setEdges,
+    undo, redo, pushHistory,
+    canUndo: history.past.length > 0,
+    canRedo: history.future.length > 0,
     selectedNodeId, setSelectedNodeId,
     selectedEdgeId, setSelectedEdgeId,
     hoveredNodeId, setHoveredNodeId,

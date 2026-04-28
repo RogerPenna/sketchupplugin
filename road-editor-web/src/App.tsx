@@ -94,6 +94,7 @@ function App() {
 
   const {
     nodes, setNodes, edges, setEdges,
+    undo, redo, canUndo, canRedo, pushHistory,
     selectedNodeId, setSelectedNodeId, selectedEdgeId, setSelectedEdgeId,
     hoveredNodeId, hoveredEdgeId,
     interactionMode, setInteractionMode, editMode, axisLock,
@@ -106,6 +107,9 @@ function App() {
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative', background: 'white' }}>
       <div style={{ position: 'absolute', top: 20, right: 20, zIndex: 10, display: 'flex', gap: '5px', background: 'rgba(255,255,255,0.9)', padding: '5px', borderRadius: '8px' }}>
+        <button className={`tool-btn ${canUndo ? '' : 'disabled'}`} onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)">↩️</button>
+        <button className={`tool-btn ${canRedo ? '' : 'disabled'}`} onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Y)">↪️</button>
+        <div style={{ width: '1px', background: '#ccc', margin: '0 5px' }} />
         <button className={`tool-btn ${interactionMode === 'SELECT' ? 'active' : ''}`} onClick={() => { setInteractionMode('SELECT'); editor.setActiveChainStartId(null); }}>🖱️ Move/Select</button>
         <button className={`tool-btn ${interactionMode === 'CREATE' ? 'active' : ''}`} onClick={() => setInteractionMode('CREATE')}>🛣️ Road Tool</button>
         <div style={{ width: '1px', background: '#ccc', margin: '0 5px' }} />
@@ -126,6 +130,7 @@ function App() {
           {selectedNodeId && nodes[selectedNodeId] && (
             <div style={{ padding: '15px', background: '#f9f9f9', borderRadius: '8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}><span>Node Info</span><button className="tool-btn" style={{ fontSize: '0.6rem' }} onClick={() => { 
+                pushHistory(nodes, edges);
                 const connectedEdges = edges.filter(e => e.n1 === selectedNodeId || e.n2 === selectedNodeId);
                 setNodes(prev => {
                   const newNodes = { ...prev };
@@ -144,15 +149,16 @@ function App() {
                 setSelectedNodeId(null); 
               }}>Delete</button></div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
-                <NumericInput label="X" value={nodes[selectedNodeId].pos.x} onChange={v => setNodes(p => ({ ...p, [selectedNodeId]: { ...p[selectedNodeId], pos: p[selectedNodeId].pos.clone().setX(v) } }))} />
-                <NumericInput label="Y" value={nodes[selectedNodeId].pos.y} onChange={v => setNodes(p => ({ ...p, [selectedNodeId]: { ...p[selectedNodeId], pos: p[selectedNodeId].pos.clone().setY(v) } }))} />
-                <NumericInput label="Z" value={nodes[selectedNodeId].pos.z} onChange={v => setNodes(p => ({ ...p, [selectedNodeId]: { ...p[selectedNodeId], pos: p[selectedNodeId].pos.clone().setZ(v) } }))} />
+                <NumericInput label="X" value={nodes[selectedNodeId].pos.x} onChange={v => { pushHistory(nodes, edges); setNodes(p => ({ ...p, [selectedNodeId]: { ...p[selectedNodeId], pos: p[selectedNodeId].pos.clone().setX(v) } })); }} />
+                <NumericInput label="Y" value={nodes[selectedNodeId].pos.y} onChange={v => { pushHistory(nodes, edges); setNodes(p => ({ ...p, [selectedNodeId]: { ...p[selectedNodeId], pos: p[selectedNodeId].pos.clone().setY(v) } })); }} />
+                <NumericInput label="Z" value={nodes[selectedNodeId].pos.z} onChange={v => { pushHistory(nodes, edges); setNodes(p => ({ ...p, [selectedNodeId]: { ...p[selectedNodeId], pos: p[selectedNodeId].pos.clone().setZ(v) } })); }} />
               </div>
             </div>
           )}
           {selectedEdgeId && edges.find(e => e.id === selectedEdgeId) && (
             <div style={{ padding: '15px', background: '#e3f2fd', borderRadius: '8px', marginTop: '10px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}><span>Edge Info</span><button className="tool-btn" style={{ fontSize: '0.6rem' }} onClick={() => { 
+                pushHistory(nodes, edges);
                 const edgeToDelete = edges.find(e => e.id === selectedEdgeId)!;
                 setNodes(prev => {
                   const newNodes = { ...prev };
@@ -174,6 +180,7 @@ function App() {
                 const n1 = nodes[edge.n1];
                 if (!n1) return null;
                 const updateEdgeNodes = (field: keyof NodeData, val: number) => {
+                  pushHistory(nodes, edges);
                   setNodes(prev => ({
                     ...prev,
                     [edge.n1]: { ...prev[edge.n1], [field]: val },
@@ -185,6 +192,7 @@ function App() {
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
                     <NumericInput label="Total Width" value={totalWidth} onChange={v => {
+                      pushHistory(nodes, edges);
                       const ratio = v / (totalWidth || 1);
                       setNodes(prev => ({
                         ...prev,
@@ -203,6 +211,7 @@ function App() {
                         <select 
                           value={edge.resMode || 'FIXED'} 
                           onChange={(e) => {
+                            pushHistory(nodes, edges);
                             const mode = e.target.value as any;
                             setEdges(prev => prev.map(ed => ed.id === selectedEdgeId ? { ...ed, resMode: mode, resValue: mode === 'FIXED' ? 24 : (mode === 'LENGTH' ? 2 : 10) } : ed));
                           }}
@@ -222,11 +231,13 @@ function App() {
                         } 
                         value={edge.resValue || edge.resolution || (edge.resMode === 'FIXED' ? 24 : (edge.resMode === 'LENGTH' ? 2 : (edge.resMode === 'ANGLE' ? 10 : 0.01)))} 
                         onChange={v => {
+                          pushHistory(nodes, edges);
                           setEdges(prev => prev.map(ed => ed.id === selectedEdgeId ? { ...ed, resValue: v, resolution: undefined } : ed));
                         }} 
                       />
                     </div>
                     <button className="tool-btn" onClick={() => {
+                      pushHistory(nodes, edges);
                       const dir = nodes[edge.n2].pos.clone().sub(nodes[edge.n1].pos);
                       setNodes(pn => ({ 
                         ...pn, 
@@ -303,6 +314,7 @@ function App() {
               axisLock={axisLock} 
               snapVec={snapVec} 
               orbitControlsRef={orbitRef} 
+              onDragStart={() => pushHistory(nodes, edges)}
             />
           ))}
           {edges.map((e) => (
