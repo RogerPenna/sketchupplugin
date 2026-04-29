@@ -233,6 +233,38 @@ function App() {
                           <option value="RIGHT">Right Border (Inside)</option>
                         </select>
                       </label>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', padding: '4px', border: '1px solid #eee', borderRadius: '4px', background: 'rgba(0,0,0,0.03)' }}>
+                        <label style={{ fontSize: '0.6rem', fontWeight: 'bold', color: '#888' }}>START ANCHOR
+                          <select 
+                            value={edge.n1Anchor || edge.alignment || 'CENTER'}
+                            onChange={(e) => {
+                              pushHistory(nodes, edges);
+                              const val = e.target.value as any;
+                              setEdges(prev => prev.map(ed => ed.id === selectedEdgeId ? { ...ed, n1Anchor: val } : ed));
+                            }}
+                            style={{ width: '100%', fontSize: '0.7rem' }}
+                          >
+                            <option value="CENTER">Center</option>
+                            <option value="LEFT">Left Side</option>
+                            <option value="RIGHT">Right Side</option>
+                          </select>
+                        </label>
+                        <label style={{ fontSize: '0.6rem', fontWeight: 'bold', color: '#888' }}>END ANCHOR
+                          <select 
+                            value={edge.n2Anchor || edge.alignment || 'CENTER'}
+                            onChange={(e) => {
+                              pushHistory(nodes, edges);
+                              const val = e.target.value as any;
+                              setEdges(prev => prev.map(ed => ed.id === selectedEdgeId ? { ...ed, n2Anchor: val } : ed));
+                            }}
+                            style={{ width: '100%', fontSize: '0.7rem' }}
+                          >
+                            <option value="CENTER">Center</option>
+                            <option value="LEFT">Left Side</option>
+                            <option value="RIGHT">Right Side</option>
+                          </select>
+                        </label>
+                      </div>
                       <label style={{ fontSize: '0.7rem', fontWeight: 'bold', color: '#666' }}>Tight Turn Mode
                         <select 
                           value={edge.tightTurnMode || 'APEX'} 

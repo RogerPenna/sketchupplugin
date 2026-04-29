@@ -12,6 +12,8 @@ export interface NodeData {
   sw_r: number;
 }
 
+export type Alignment = 'CENTER' | 'LEFT' | 'RIGHT';
+
 export interface EdgeData {
   id: string;
   n1: string; // ID do nó inicial
@@ -20,7 +22,9 @@ export interface EdgeData {
   resValue?: number;
   resolution?: number; // Deprecated
   tightTurnMode?: 'APEX' | 'CLEAN';
-  alignment?: 'CENTER' | 'LEFT' | 'RIGHT';
+  alignment?: Alignment;
+  n1Anchor?: Alignment;
+  n2Anchor?: Alignment;
 }
 
 export interface PathPoint {
@@ -34,13 +38,50 @@ export interface PathPoint {
 }
 
 export class RoadGeometry {
+  static getBezierNodePoint(node: NodeData, edgeId: string, isStart: boolean, edge?: EdgeData): THREE.Vector3 {
+    const align = edge?.alignment || 'CENTER';
+    const anchor = (isStart ? edge?.n1Anchor : edge?.n2Anchor) || align;
+    
+    if (anchor === align && anchor === 'CENTER') return node.pos.clone();
+
+    // To calculate perp, we need the direction. We use the handle.
+    const handle = node.handles[edgeId];
+    if (!handle) return node.pos.clone();
+
+    const dir = isStart 
+      ? handle.clone().sub(node.pos).normalize() 
+      : node.pos.clone().sub(handle).normalize();
+    
+    const perp = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 0, 1)).normalize();
+    
+    const wl = node.lane_l + node.sw_l;
+    const wr = node.lane_r + node.sw_r;
+    
+    let shift = 0;
+    if (align === 'LEFT') shift = -wl;
+    else if (align === 'RIGHT') shift = wr;
+
+    let anchorShift = shift;
+    if (anchor === 'LEFT') anchorShift = shift + wl;
+    else if (anchor === 'RIGHT') anchorShift = shift - wr;
+    else anchorShift = shift; // anchor === 'CENTER' is the baseline for shift
+
+    // We want the point on the road corresponding to 'anchor' to be at node.pos.
+    // AnchorPoint = BezierPoint + perp * anchorShift
+    // So BezierPoint = node.pos - perp * anchorShift
+    return node.pos.clone().sub(perp.multiplyScalar(anchorShift));
+  }
+
   static generateBezierPath(n1: NodeData, n2: NodeData, edgeId: string, segments: number, edge?: EdgeData): PathPoint[] {
     const points: PathPoint[] = [];
-    const dir = n2.pos.clone().sub(n1.pos);
-    const h1 = n1.handles[edgeId] || n1.pos.clone().add(dir.clone().multiplyScalar(0.33));
-    const h2 = n2.handles[edgeId] || n1.pos.clone().add(dir.clone().multiplyScalar(0.66));
+    
+    const p1 = this.getBezierNodePoint(n1, edgeId, true, edge);
+    const p2 = this.getBezierNodePoint(n2, edgeId, false, edge);
+    
+    const h1 = n1.handles[edgeId] || n1.pos.clone().add(n2.pos.clone().sub(n1.pos).multiplyScalar(0.33));
+    const h2 = n2.handles[edgeId] || n1.pos.clone().add(p2.clone().sub(p1).multiplyScalar(0.66));
 
-    const curve = new THREE.CubicBezierCurve3(n1.pos, h1, h2, n2.pos);
+    const curve = new THREE.CubicBezierCurve3(p1, h1, h2, p2);
     
     const mode = edge?.resMode || 'FIXED';
     const val = edge?.resValue || (edge?.resolution || segments);

@@ -162,7 +162,7 @@ export function useRoadEditor() {
           const p0123 = new THREE.Vector3().lerpVectors(p012, p123, t);
 
           const midId = generateId("n");
-          const nMid = { id: midId, pos: p0123, handles: {}, lane_l: 3.5, lane_r: 3.5, sw_l: 1.5, sw_r: 1.5 };
+          const nMid: NodeData = { id: midId, pos: p0123, handles: {}, lane_l: 3.5, lane_r: 3.5, sw_l: 1.5, sw_r: 1.5 };
           targetId = midId;
 
           const e1Id = generateId("e");
@@ -179,7 +179,7 @@ export function useRoadEditor() {
           setNodes(prev => {
             const nStart = { ...prev[edge.n1] };
             const nEnd = { ...prev[edge.n2] };
-            const nMidFinal = { ...nMid };
+            const nMidFinal: NodeData = { ...nMid };
 
             // Remove old handle, add new ones
             delete nStart.handles[edge.id];
@@ -197,13 +197,15 @@ export function useRoadEditor() {
         targetId = addNode(point);
     }
     
-    if (activeChainStartId && activeChainStartId !== targetId) {
-        addEdge(activeChainStartId, targetId);
+    if (targetId) {
+        if (activeChainStartId && activeChainStartId !== targetId) {
+            addEdge(activeChainStartId, targetId);
+        }
+        
+        setActiveChainStartId(targetId); 
+        setSelectedNodeId(targetId);
+        setSelectedEdgeId(null);
     }
-    
-    setActiveChainStartId(targetId); 
-    setSelectedNodeId(targetId);
-    setSelectedEdgeId(null);
   }, [interactionMode, activeChainStartId, edges, nodes, addNode, addEdge, pushHistory]);
 
   const handleImport = async (type: 'pdf' | 'dxf') => {
