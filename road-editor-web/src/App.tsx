@@ -394,6 +394,7 @@ function App() {
               key={e.id} 
               edge={e} 
               nodesMap={nodes} 
+              allEdges={edges}
               isSelected={selectedEdgeId === e.id} 
               isHovered={hoveredEdgeId === e.id} 
               onSelect={() => { setSelectedEdgeId(e.id); setSelectedNodeId(null); }} 

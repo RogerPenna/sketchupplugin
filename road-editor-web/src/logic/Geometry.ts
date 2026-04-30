@@ -37,14 +37,25 @@ export interface PathPoint {
   alignment?: 'CENTER' | 'LEFT' | 'RIGHT';
 }
 
+export interface JunctionInfo {
+  n1Neighbors: string[] | null; // IDs das estradas vizinhas no nó n1
+  n2Neighbors: string[] | null; // IDs das estradas vizinhas no nó n2
+}
+
+export interface TrimResult {
+  tStart: number;
+  tEnd: number;
+  error?: string;
+}
+
 export class RoadGeometry {
+  // ... (getBezierNodePoint e generateBezierPath permanecem similares)
   static getBezierNodePoint(node: NodeData, edgeId: string, isStart: boolean, edge?: EdgeData): THREE.Vector3 {
     const align = edge?.alignment || 'CENTER';
     const anchor = (isStart ? edge?.n1Anchor : edge?.n2Anchor) || align;
     
     if (anchor === align && anchor === 'CENTER') return node.pos.clone();
 
-    // To calculate perp, we need the direction. We use the handle.
     const handle = node.handles[edgeId];
     if (!handle) return node.pos.clone();
 
@@ -64,23 +75,17 @@ export class RoadGeometry {
     let anchorShift = shift;
     if (anchor === 'LEFT') anchorShift = shift + wl;
     else if (anchor === 'RIGHT') anchorShift = shift - wr;
-    else anchorShift = shift; // anchor === 'CENTER' is the baseline for shift
+    else anchorShift = shift;
 
-    // We want the point on the road corresponding to 'anchor' to be at node.pos.
-    // AnchorPoint = BezierPoint + perp * anchorShift
-    // So BezierPoint = node.pos - perp * anchorShift
     return node.pos.clone().sub(perp.multiplyScalar(anchorShift));
   }
 
   static generateBezierPath(n1: NodeData, n2: NodeData, edgeId: string, segments: number, edge?: EdgeData): PathPoint[] {
     const points: PathPoint[] = [];
-    
     const p1 = this.getBezierNodePoint(n1, edgeId, true, edge);
     const p2 = this.getBezierNodePoint(n2, edgeId, false, edge);
-    
     const h1 = n1.handles[edgeId] || n1.pos.clone().add(n2.pos.clone().sub(n1.pos).multiplyScalar(0.33));
     const h2 = n2.handles[edgeId] || n1.pos.clone().add(p2.clone().sub(p1).multiplyScalar(0.66));
-
     const curve = new THREE.CubicBezierCurve3(p1, h1, h2, p2);
     
     const mode = edge?.resMode || 'FIXED';
@@ -96,178 +101,240 @@ export class RoadGeometry {
       alignment: edge?.alignment || 'CENTER'
     });
 
-    if (mode === 'ANGLE') {
-      points.push(createPP(0));
-      let lastTangent = curve.getTangent(0).normalize();
-      const samples = 200;
-      const threshold = val || 10;
-      let accumulatedAngle = 0;
-      for (let i = 1; i <= samples; i++) {
-        const t = i / samples;
-        const currentTangent = curve.getTangent(t).normalize();
-        accumulatedAngle += lastTangent.angleTo(currentTangent) * (180 / Math.PI);
-        if (accumulatedAngle >= threshold || i === samples) {
-          points.push(createPP(t));
-          lastTangent = currentTangent;
-          accumulatedAngle = 0;
-        }
-      }
-    } else if (mode === 'ERROR') {
-      points.push(createPP(0));
-      const threshold = val || 0.01;
-      const adaptive = (t1: number, t2: number) => {
-        const p1 = curve.getPoint(t1);
-        const p2 = curve.getPoint(t2);
-        const midT = (t1 + t2) / 2;
-        const pMid = curve.getPoint(midT);
-        const line = new THREE.Line3(p1, p2);
-        const closestPoint = new THREE.Vector3();
-        line.closestPointToPoint(pMid, true, closestPoint);
-        const dist = pMid.distanceTo(closestPoint);
-        if (dist > threshold && (t2 - t1) > 0.001) {
-          adaptive(t1, midT);
-          adaptive(midT, t2);
-        } else {
-          points.push(createPP(t2));
-        }
-      };
-      adaptive(0, 1);
-    } else {
-      const divisionCount = mode === 'LENGTH' 
-        ? Math.max(1, Math.ceil(curve.getLength() / (val || 1)))
-        : Math.round(val || 24);
-      const length = curve.getLength();
-      for (let i = 0; i <= divisionCount; i++) {
-        const u = i / divisionCount;
-        const t = curve.getUtoTmapping(u, u * length);
-        points.push(createPP(t));
-      }
+    const divisionCount = mode === 'LENGTH' 
+      ? Math.max(2, Math.ceil(curve.getLength() / (val || 1)))
+      : Math.round(val || 24);
+    
+    for (let i = 0; i <= divisionCount; i++) {
+      points.push(createPP(i / divisionCount));
     }
     return points;
   }
 
-  static calculateAllEdges(allData: PathPoint[]): any[] {
-    const rawEdges: any[] = [];
-    const n = allData.length;
+  /**
+   * Calcula o tStart e tEnd de uma estrada baseado nas colisões das fronteiras externas.
+   */
+  static calculateTrim(edge: EdgeData, allEdges: EdgeData[], nodesMap: Record<string, NodeData>): TrimResult {
+    const n1 = nodesMap[edge.n1];
+    const n2 = nodesMap[edge.n2];
+    if (!n1 || !n2) return { tStart: 0, tEnd: 1 };
+
+    // 1. Gerar geometria completa (high-res) para colisão
+    const fullPath = this.generateBezierPath(n1, n2, edge.id, 50, edge);
+    const fullRails = this.calculateRawRails(fullPath);
     
-    // 1. Calculate ideal shifts and perps for all points
-    const idealShifts = new Array(n);
-    const perps = new Array(n);
-    
+    let tStart = 0;
+    let tEnd = 1;
+
+    const checkNode = (nodeId: string, isStart: boolean) => {
+      const neighbors = allEdges.filter(e => e.id !== edge.id && (e.n1 === nodeId || e.n2 === nodeId));
+      
+      neighbors.forEach(nb => {
+        const nbN1 = nodesMap[nb.n1];
+        const nbN2 = nodesMap[nb.n2];
+        if (!nbN1 || !nbN2) return;
+
+        const nbPath = this.generateBezierPath(nbN1, nbN2, nb.id, 50, nb);
+        const nbRails = this.calculateRawRails(nbPath);
+
+        // Testar as 4 combinações de limites externos (L-L, L-R, R-L, R-R)
+        const combinations = [
+          { a: fullRails.l_sw, b: nbRails.l_sw },
+          { a: fullRails.l_sw, b: nbRails.r_sw },
+          { a: fullRails.r_sw, b: nbRails.l_sw },
+          { a: fullRails.r_sw, b: nbRails.r_sw }
+        ];
+
+        combinations.forEach(combo => {
+          const inter = this.findExtremeIntersection(combo.a, combo.b, isStart, nb.n1 === nodeId);
+          if (inter) {
+            // Projetar intersecção no eixo central para achar o 't'
+            const t = this.findClosestT(fullRails.center, inter.point);
+            if (isStart) tStart = Math.max(tStart, t);
+            else tEnd = Math.min(tEnd, t);
+          }
+        });
+      });
+    };
+
+    checkNode(edge.n1, true);
+    checkNode(edge.n2, false);
+
+    return { 
+      tStart: tStart,
+      tEnd: tEnd,
+      error: tStart >= tEnd ? "Conflito Geométrico: Estradas sobrepostas" : undefined
+    };
+  }
+
+  private static interpolatePathPoint(p1: PathPoint, p2: PathPoint, factor: number): PathPoint {
+    return {
+      pos: new THREE.Vector3().lerpVectors(p1.pos, p2.pos, factor),
+      ll: p1.ll + (p2.ll - p1.ll) * factor,
+      lr: p1.lr + (p2.lr - p1.lr) * factor,
+      sl: p1.sl + (p2.sl - p1.sl) * factor,
+      sr: p1.sr + (p2.sr - p1.sr) * factor,
+      tightTurnMode: p1.tightTurnMode,
+      alignment: p1.alignment
+    };
+  }
+
+  private static calculateRawRails(path: PathPoint[]) {
+    const n = path.length;
+    const center: THREE.Vector3[] = [];
+    const l_sw: THREE.Vector3[] = [];
+    const r_sw: THREE.Vector3[] = [];
+
     for (let i = 0; i < n; i++) {
-      const d = allData[i];
-      const v1 = i > 0 ? d.pos.clone().sub(allData[i - 1].pos).normalize() : null;
-      const v2 = i < n - 1 ? allData[i + 1].pos.clone().sub(d.pos).normalize() : null;
-      let dir = v1 && v2 ? v1.clone().add(v2).normalize() : (v1 || v2);
-      if (!dir) {
-        perps[i] = new THREE.Vector3(1, 0, 0);
-        idealShifts[i] = 0;
-        continue;
-      }
+      const d = path[i];
+      const v1 = i > 0 ? d.pos.clone().sub(path[i - 1].pos).normalize() : null;
+      const v2 = i < n - 1 ? path[i + 1].pos.clone().sub(d.pos).normalize() : null;
+      let dir = v1 && v2 ? v1.clone().add(v2).normalize() : (v1 || v2 || new THREE.Vector3(1,0,0));
       const perp = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 0, 1)).normalize();
-      if (perp.length() < 0.001) perp.set(1, 0, 0);
-      perps[i] = perp;
+      
+      let shift = 0;
+      if (d.alignment === 'LEFT') shift = -(d.ll + d.sl);
+      else if (d.alignment === 'RIGHT') shift = (d.lr + d.sr);
 
-      const align = d.alignment || 'CENTER';
-      if (align === 'LEFT') {
-        idealShifts[i] = -(d.ll + d.sl);
-      } else if (align === 'RIGHT') {
-        idealShifts[i] = (d.lr + d.sr);
-      } else {
-        idealShifts[i] = 0;
-      }
+      const c = d.pos.clone().add(perp.clone().multiplyScalar(shift));
+      center.push(c);
+      l_sw.push(c.clone().add(perp.clone().multiplyScalar(d.ll + d.sl)));
+      r_sw.push(c.clone().add(perp.clone().multiplyScalar(-(d.lr + d.sr))));
     }
+    return { center, l_sw, r_sw };
+  }
 
-    // 2. Smooth the shifts to ensure perfect connections at nodes
-    // and smooth transitions between different alignments.
-    const smoothedShifts = new Array(n);
-    const windowSize = 2; // Smooth over 5 points (i-2 to i+2)
-    for (let i = 0; i < n; i++) {
-      let sum = 0, count = 0;
-      for (let k = -windowSize; k <= windowSize; k++) {
-        const idx = i + k;
-        if (idx >= 0 && idx < n) {
-          sum += idealShifts[idx];
-          count++;
+  private static findExtremeIntersection(polyA: THREE.Vector3[], polyB: THREE.Vector3[], fromStart: boolean, nbIsStart: boolean) {
+    let bestT = fromStart ? -1 : 2;
+    let bestResult = null;
+    const nA = polyA.length;
+    const nB = polyB.length;
+
+    for (let i = 0; i < nA - 1; i++) {
+      const tA = i / (nA - 1);
+      // Limitar a busca para evitar conflitos com o outro lado da estrada
+      if (fromStart && tA > 0.5) continue;
+      if (!fromStart && tA < 0.5) continue;
+
+      const a1 = new THREE.Vector2(polyA[i].x, polyA[i].y);
+      const a2 = new THREE.Vector2(polyA[i+1].x, polyA[i+1].y);
+
+      for (let j = 0; j < nB - 1; j++) {
+        const tB = j / (nB - 1);
+        // Também limitar a busca no vizinho para focar na junção
+        if (nbIsStart && tB > 0.5) continue;
+        if (!nbIsStart && tB < 0.5) continue;
+
+        const b1 = new THREE.Vector2(polyB[j].x, polyB[j].y);
+        const b2 = new THREE.Vector2(polyB[j+1].x, polyB[j+1].y);
+
+        const pt = this.intersectSegments2D(a1, a2, b1, b2);
+        if (pt) {
+          if (fromStart) {
+            // No início, queremos o 't' mais distante (máximo) para garantir o corte total
+            if (tA > bestT) {
+              bestT = tA;
+              bestResult = { point: new THREE.Vector3(pt.x, pt.y, polyA[i].z), tIndex: i };
+            }
+          } else {
+            // No fim, queremos o 't' mais distante (mínimo) para garantir o corte total
+            if (tA < bestT) {
+              bestT = tA;
+              bestResult = { point: new THREE.Vector3(pt.x, pt.y, polyA[i].z), tIndex: i };
+            }
+          }
         }
       }
-      smoothedShifts[i] = sum / count;
+    }
+    return bestResult;
+  }
+
+  private static intersectSegments2D(p1: THREE.Vector2, p2: THREE.Vector2, p3: THREE.Vector2, p4: THREE.Vector2): THREE.Vector2 | null {
+    const det = (p2.x - p1.x) * (p4.y - p3.y) - (p2.y - p1.y) * (p4.x - p3.x);
+    if (det === 0) return null;
+    const _ua = ((p4.x - p3.x) * (p1.y - p3.y) - (p4.y - p3.y) * (p1.x - p3.x)) / det;
+    const _ub = ((p2.x - p1.x) * (p1.y - p3.y) - (p2.y - p1.y) * (p1.x - p3.x)) / det;
+    if (_ua >= 0 && _ua <= 1 && _ub >= 0 && _ub <= 1) {
+      return new THREE.Vector2(p1.x + _ua * (p2.x - p1.x), p1.y + _ua * (p2.y - p1.y));
+    }
+    return null;
+  }
+
+  private static findClosestT(centerline: THREE.Vector3[], point: THREE.Vector3): number {
+    let minDist = Infinity;
+    let closestT = 0;
+    const n = centerline.length;
+    for (let i = 0; i < n - 1; i++) {
+      const a = centerline[i];
+      const b = centerline[i+1];
+      const line = new THREE.Line3(a, b);
+      const target = new THREE.Vector3();
+      line.closestPointToPoint(point, true, target);
+      const dist = target.distanceTo(point);
+      if (dist < minDist) {
+        minDist = dist;
+        const segmentLen = a.distanceTo(b);
+        const distFromA = a.distanceTo(target);
+        const segmentT = segmentLen > 0 ? distFromA / segmentLen : 0;
+        closestT = (i + segmentT) / (n - 1);
+      }
+    }
+    return closestT;
+  }
+
+  static calculateAllEdges(allData: PathPoint[], tStart: number = 0, tEnd: number = 1): any[] {
+    if (allData.length < 2 || tStart >= tEnd - 0.001) return [];
+    
+    const nFull = allData.length;
+    const finalPoints: PathPoint[] = [];
+
+    // Add start interpolated point
+    const exactStartIdx = tStart * (nFull - 1);
+    const sIdx = Math.min(nFull - 2, Math.floor(exactStartIdx));
+    const sFact = exactStartIdx - sIdx;
+    finalPoints.push(this.interpolatePathPoint(allData[sIdx], allData[sIdx+1], sFact));
+
+    // Add intermediate points that are strictly between tStart and tEnd
+    for (let i = 0; i < nFull; i++) {
+      const t = i / (nFull - 1);
+      if (t > tStart + 0.00001 && t < tEnd - 0.00001) {
+        finalPoints.push(allData[i]);
+      }
     }
 
-    // 3. Generate raw edges using smoothed shifts
+    // Add end interpolated point
+    const exactEndIdx = tEnd * (nFull - 1);
+    const eIdx = Math.min(nFull - 2, Math.floor(exactEndIdx));
+    const eFact = exactEndIdx - eIdx;
+    if (tEnd > tStart + 0.00001) {
+      finalPoints.push(this.interpolatePathPoint(allData[eIdx], allData[eIdx+1], eFact));
+    }
+
+    const n = finalPoints.length;
+    const rawEdges: any[] = [];
+    
     for (let i = 0; i < n; i++) {
-      const d = allData[i];
-      const perp = perps[i];
-      const shift = smoothedShifts[i];
+      const d = finalPoints[i];
+      const v1 = i > 0 ? d.pos.clone().sub(finalPoints[i - 1].pos).normalize() : null;
+      const v2 = i < n - 1 ? finalPoints[i + 1].pos.clone().sub(d.pos).normalize() : null;
+      
+      let dir = (v1 && v2) ? v1.clone().add(v2).normalize() : (v1 || v2 || new THREE.Vector3(1, 0, 0));
+      const perp = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 0, 1)).normalize();
+
+      let shift = 0;
+      if (d.alignment === 'LEFT') shift = -(d.ll + d.sl);
+      else if (d.alignment === 'RIGHT') shift = (d.lr + d.sr);
       
       const centerPos = d.pos.clone().add(perp.clone().multiplyScalar(shift));
-
       rawEdges.push({
         center: centerPos.clone(),
         l_lane: centerPos.clone().add(perp.clone().multiplyScalar(d.ll)),
         r_lane: centerPos.clone().add(perp.clone().multiplyScalar(-d.lr)),
         l_sw: centerPos.clone().add(perp.clone().multiplyScalar(d.ll + d.sl)),
         r_sw: centerPos.clone().add(perp.clone().multiplyScalar(-(d.lr + d.sr))),
-        tightTurnMode: d.tightTurnMode || 'APEX'
       });
     }
 
-    const getIntersection = (p1: THREE.Vector2, p2: THREE.Vector2, p3: THREE.Vector2, p4: THREE.Vector2) => {
-      const den = (p4.y - p3.y) * (p2.x - p1.x) - (p4.x - p3.x) * (p2.y - p1.y);
-      if (Math.abs(den) < 0.00001) return null;
-      const ua = ((p4.x - p3.x) * (p1.y - p3.y) - (p4.y - p3.y) * (p1.x - p3.x)) / den;
-      const ub = ((p2.x - p1.x) * (p1.y - p3.y) - (p2.y - p1.y) * (p1.x - p3.x)) / den;
-      if (ua > 0.01 && ua < 0.99 && ub > 0.01 && ub < 0.99) {
-        return new THREE.Vector2(p1.x + ua * (p2.x - p1.x), p1.y + ua * (p2.y - p1.y));
-      }
-      return null;
-    };
-
-    const finalEdges = rawEdges.map(e => ({...e}));
-    const rails = ['center', 'l_lane', 'r_lane', 'l_sw', 'r_sw'];
-    
-    rails.forEach(rail => {
-      for (let i = 0; i < finalEdges.length - 2; i++) {
-        for (let j = finalEdges.length - 2; j > i + 1; j--) {
-          const p1 = new THREE.Vector2((finalEdges[i] as any)[rail].x, (finalEdges[i] as any)[rail].y);
-          const p2 = new THREE.Vector2((finalEdges[i+1] as any)[rail].x, (finalEdges[i+1] as any)[rail].y);
-          const p3 = new THREE.Vector2((finalEdges[j] as any)[rail].x, (finalEdges[j] as any)[rail].y);
-          const p4 = new THREE.Vector2((finalEdges[j+1] as any)[rail].x, (finalEdges[j+1] as any)[rail].y);
-          
-          const intersect = getIntersection(p1, p2, p3, p4);
-          if (intersect) {
-            const mode = (finalEdges[i] as any).tightTurnMode;
-            const z = ((finalEdges[i] as any)[rail].z + (finalEdges[j] as any)[rail].z) / 2;
-            const P = new THREE.Vector3(intersect.x, intersect.y, z);
-            
-            if (mode === 'CLEAN') {
-              // Create a smooth rounding using a Quadratic Bezier curve
-              const startP = (finalEdges[i] as any)[rail].clone();
-              const endP = (finalEdges[j + 1] as any)[rail].clone();
-              const curve = new THREE.QuadraticBezierCurve3(startP, P, endP);
-              const count = j - i;
-              for (let k = 1; k <= count; k++) {
-                const t = k / (count + 1);
-                const newPos = curve.getPoint(t);
-                // CRITICAL: Keep the Z in sync with the center rail at this index
-                // to avoid vertical cliffs on ramps.
-                newPos.z = (finalEdges[i + k] as any).center.z;
-                (finalEdges[i + k] as any)[rail].copy(newPos);
-              }
-            } else {
-              // APEX Mode: Traditional collapse
-              for (let k = i + 1; k <= j; k++) {
-                const targetZ = (finalEdges[k] as any).center.z;
-                (finalEdges[k] as any)[rail].set(P.x, P.y, targetZ);
-              }
-            }
-            i = j; // Skip processed part of this rail
-            break;
-          }
-        }
-      }
-    });
-
-    return finalEdges;
+    return rawEdges;
   }
 }

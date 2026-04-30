@@ -5,7 +5,28 @@ import { RoadGeometry } from '../logic/Geometry'
 import type { NodeData, EdgeData } from '../logic/Geometry'
 import type { InteractionMode } from '../types/editor'
 
-export function EditorSegment({ edge, nodesMap, isSelected, isHovered, onSelect, onSceneClick, interactionMode }: { edge: EdgeData, nodesMap: Record<string, NodeData>, isSelected: boolean, isHovered: boolean, onSelect: () => void, onSceneClick: (p: THREE.Vector3, nodeId?: string, edgeId?: string) => void, interactionMode: InteractionMode }) {
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+export function EditorSegment({
+  edge,
+  nodesMap,
+  allEdges,
+  isSelected,
+  isHovered,
+  onSelect,
+  onSceneClick,
+  interactionMode,
+}: {
+  edge: EdgeData;
+  nodesMap: Record<string, NodeData>;
+  allEdges: EdgeData[]; // NEW: full edge list so we can find neighbors
+  isSelected: boolean;
+  isHovered: boolean;
+  onSelect: () => void;
+  onSceneClick: (p: THREE.Vector3, nodeId?: string, edgeId?: string) => void;
+  interactionMode: InteractionMode;
+}) {
   const n1 = nodesMap[edge.n1], n2 = nodesMap[edge.n2];
   if (!n1 || !n2) return null;
   const h1 = n1.handles[edge.id] || n1.pos.clone().add(n2.pos.clone().sub(n1.pos).multiplyScalar(0.33));
@@ -34,12 +55,14 @@ export function EditorSegment({ edge, nodesMap, isSelected, isHovered, onSelect,
   }, [n1.pos, n2.pos]);
 
   const roadGeometry = useMemo(() => {
+    // 1. Gerar o caminho completo do Bézier
     const pathPoints = RoadGeometry.generateBezierPath(n1, n2, edge.id, resolution, edge);
-    const edgesArr = RoadGeometry.calculateAllEdges(pathPoints.map(p => ({ 
-      pos: p.pos, ll: p.ll, lr: p.lr, sl: p.sl, sr: p.sr, 
-      tightTurnMode: p.tightTurnMode,
-      alignment: p.alignment 
-    })) as any);
+
+    // 2. Calcular os parâmetros de recorte (trimming) baseados em colisões
+    const trim = RoadGeometry.calculateTrim(edge, allEdges, nodesMap);
+
+    // 3. Gerar as arestas finais apenas para a janela visível [tStart, tEnd]
+    const edgesArr = RoadGeometry.calculateAllEdges(pathPoints, trim.tStart, trim.tEnd);
 
     const parts = {
       laneL: { v: [] as number[], i: [] as number[], li: [] as number[], c: [] as number[] },
@@ -48,28 +71,33 @@ export function EditorSegment({ edge, nodesMap, isSelected, isHovered, onSelect,
       swR: { v: [] as number[], i: [] as number[], li: [] as number[], c: [] as number[] }
     };
 
-    const addQ = (p1: THREE.Vector3, p2: THREE.Vector3, p3: THREE.Vector3, p4: THREE.Vector3, target: { v: number[], i: number[], li: number[], c: number[] }, baseColor: THREE.Color, shading: number) => {
+    const addQ = (
+      p1: THREE.Vector3, p2: THREE.Vector3, p3: THREE.Vector3, p4: THREE.Vector3,
+      target: { v: number[], i: number[], li: number[], c: number[] },
+      baseColor: THREE.Color,
+      shading: number
+    ) => {
       const off = target.v.length / 3; 
       target.v.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, p3.x, p3.y, p3.z, p4.x, p4.y, p4.z); 
       target.i.push(off, off + 1, off + 2, off, off + 2, off + 3);
       target.li.push(off, off + 1, off + 1, off + 2, off + 2, off + 3, off + 3, off);
-
       const c = baseColor.clone().multiplyScalar(shading);
       for (let i = 0; i < 4; i++) target.c.push(c.r, c.g, c.b);
     };
 
     for (let j = 0; j < edgesArr.length - 1; j++) { 
       const e1 = edgesArr[j], e2 = edgesArr[j+1]; 
-      
-      // Calculate shading based on longitudinal slope
       const dir = e2.center.clone().sub(e1.center).normalize();
-      const slope = Math.abs(dir.z); // 0 to 1
-      const shading = 1.0 - (slope * 0.6); // Darken up to 60%
+      const slope = Math.abs(dir.z);
+      const shading = 1.0 - (slope * 0.6);
 
-      addQ(e1.center, e1.l_lane, e2.l_lane, e2.center, parts.laneL, new THREE.Color(isSelected ? "#add8e6" : "#ccc"), shading);
-      addQ(e1.center, e2.center, e2.r_lane, e1.r_lane, parts.laneR, new THREE.Color(isSelected ? "#b0e0e6" : "#d0d0d0"), shading);
-      addQ(e1.l_lane, e1.l_sw, e2.l_sw, e2.l_lane, parts.swL, new THREE.Color(isSelected ? "#c0e8f0" : "#ddd"), shading);
-      addQ(e1.r_lane, e2.r_lane, e2.r_sw, e1.r_sw, parts.swR, new THREE.Color(isSelected ? "#c8edf4" : "#e5e5e5"), shading);
+      const colorLane = isSelected ? "#add8e6" : (trim.error ? "#ffcccc" : "#ccc");
+      const colorSW = isSelected ? "#c0e8f0" : (trim.error ? "#ffe0e0" : "#ddd");
+
+      addQ(e1.center, e1.l_lane, e2.l_lane, e2.center, parts.laneL, new THREE.Color(colorLane), shading);
+      addQ(e1.center, e2.center, e2.r_lane, e1.r_lane, parts.laneR, new THREE.Color(colorLane), shading);
+      addQ(e1.l_lane, e1.l_sw, e2.l_sw, e2.l_lane, parts.swL, new THREE.Color(colorSW), shading);
+      addQ(e1.r_lane, e2.r_lane, e2.r_sw, e1.r_sw, parts.swR, new THREE.Color(colorSW), shading);
     }
 
     const createG = (v: number[], idx: number[], lIdx: number[], c: number[]) => { 
@@ -88,15 +116,44 @@ export function EditorSegment({ edge, nodesMap, isSelected, isHovered, onSelect,
       laneL: createG(parts.laneL.v, parts.laneL.i, parts.laneL.li, parts.laneL.c),
       laneR: createG(parts.laneR.v, parts.laneR.i, parts.laneR.li, parts.laneR.c),
       swL: createG(parts.swL.v, parts.swL.i, parts.swL.li, parts.swL.c),
-      swR: createG(parts.swR.v, parts.swR.i, parts.swR.li, parts.swR.c)
+      swR: createG(parts.swR.v, parts.swR.i, parts.swR.li, parts.swR.c),
+      trimError: trim.error
     };
-  }, [n1.pos, n2.pos, n1.handles, n2.handles,
-      n1.lane_l, n1.lane_r, n1.sw_l, n1.sw_r,
-      n2.lane_l, n2.lane_r, n2.sw_l, n2.sw_r,
-      edge.id, resolution, edge.resMode, edge.resValue, isSelected]);
+  }, [
+    n1.pos, n2.pos, n1.handles, n2.handles,
+    n1.lane_l, n1.lane_r, n1.sw_l, n1.sw_r,
+    n2.lane_l, n2.lane_r, n2.sw_l, n2.sw_r,
+    edge.id, resolution, edge.resMode, edge.resValue, isSelected,
+    allEdges, nodesMap
+  ]);
 
   return (
     <group renderOrder={5} userData={{ edgeId: edge.id }}>
+      {/* Indicador de Erro Geométrico */}
+      {roadGeometry.trimError && (
+        <Html position={n1.pos.clone().lerp(n2.pos, 0.5)}>
+          <div style={{ background: 'red', color: 'white', padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+            ⚠️ {roadGeometry.trimError}
+          </div>
+        </Html>
+      )}
+      <mesh position={n1.pos.clone().lerp(n2.pos, 0.5)} quaternion={new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0), n2.pos.clone().sub(n1.pos).normalize())} 
+        onClick={(e) => { 
+          if (interactionMode === 'SELECT') {
+            e.stopPropagation(); 
+            onSelect(); 
+          } else if (interactionMode === 'CREATE') {
+            e.stopPropagation();
+            onSceneClick(e.point, undefined, edge.id);
+          }
+        }}
+        onPointerDown={(e) => {
+          if (interactionMode === 'SELECT' || interactionMode === 'CREATE') e.stopPropagation();
+        }}>
+        <cylinderGeometry args={[0.8, 0.8, n1.pos.distanceTo(n2.pos) * 0.9, 8]} />
+        <meshBasicMaterial colorWrite={false} depthWrite={false} />
+      </mesh>
+
       <Line points={[n1.pos, n2.pos]} color={isHovered ? "orange" : "#999"} lineWidth={isHovered ? 4 : 2} transparent opacity={0.3} depthTest={false} />
       <Line points={points} color={isSelected ? "#00ffff" : "#444"} lineWidth={isSelected ? 5 : 2} depthTest={false} />
       
@@ -123,23 +180,6 @@ export function EditorSegment({ edge, nodesMap, isSelected, isHovered, onSelect,
           </div>
         </Html>
       )}
-
-      <mesh position={n1.pos.clone().lerp(n2.pos, 0.5)} quaternion={new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0), n2.pos.clone().sub(n1.pos).normalize())} 
-        onClick={(e) => { 
-          if (interactionMode === 'SELECT') {
-            e.stopPropagation(); 
-            onSelect(); 
-          } else if (interactionMode === 'CREATE') {
-            e.stopPropagation();
-            onSceneClick(e.point, undefined, edge.id);
-          }
-        }}
-        onPointerDown={(e) => {
-          if (interactionMode === 'SELECT' || interactionMode === 'CREATE') e.stopPropagation();
-        }}>
-        <cylinderGeometry args={[0.8, 0.8, n1.pos.distanceTo(n2.pos) * 0.9, 8]} />
-        <meshBasicMaterial colorWrite={false} depthWrite={false} />
-      </mesh>
     </group>
   );
 }
