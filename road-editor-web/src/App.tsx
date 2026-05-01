@@ -6,6 +6,7 @@ import * as THREE from 'three'
 import { AdaptiveGrid, AxisLines } from './components/EditorHelpers'
 import { EditorNode } from './components/EditorNode'
 import { EditorSegment } from './components/EditorSegment'
+import { EditorJunction } from './components/EditorJunction'
 import { NumericInput, LayerItem } from './components/Sidebar'
 import { useRoadEditor } from './hooks/useRoadEditor'
 import type { NodeData } from './logic/Geometry'
@@ -373,21 +374,27 @@ function App() {
         {interactionMode === 'CREATE' && <mesh position={[mousePointer.x, mousePointer.y, mousePointer.z + 0.05]}><sphereGeometry args={[0.2]} /><meshBasicMaterial color={is90Snapped ? "yellow" : "orange"} depthTest={false} /></mesh>}
         <group renderOrder={10}>
           {Object.values(nodes).map((n) => (
-            <EditorNode 
-              key={n.id} 
-              node={n} 
-              isSelected={selectedNodeId === n.id} 
-              isHovered={hoveredNodeId === n.id} 
-              onSelect={() => { setSelectedNodeId(n.id); setSelectedEdgeId(null); }} 
-              onSceneClick={handleSceneClick} 
-              onChange={(newData) => setNodes(prev => ({ ...prev, [newData.id]: newData }))} 
-              interactionMode={interactionMode} 
-              editMode={editMode} 
-              axisLock={axisLock} 
-              snapVec={snapVec} 
-              orbitControlsRef={orbitRef} 
-              onDragStart={() => pushHistory(nodes, edges)}
-            />
+            <group key={n.id}>
+              <EditorNode 
+                node={n} 
+                isSelected={selectedNodeId === n.id} 
+                isHovered={hoveredNodeId === n.id} 
+                onSelect={() => { setSelectedNodeId(n.id); setSelectedEdgeId(null); }} 
+                onSceneClick={handleSceneClick} 
+                onChange={(newData) => setNodes(prev => ({ ...prev, [newData.id]: newData }))} 
+                interactionMode={interactionMode} 
+                editMode={editMode} 
+                axisLock={axisLock} 
+                snapVec={snapVec} 
+                orbitControlsRef={orbitRef} 
+                onDragStart={() => pushHistory(nodes, edges)}
+              />
+              <EditorJunction 
+                node={n}
+                allEdges={edges}
+                nodesMap={nodes}
+              />
+            </group>
           ))}
           {edges.map((e) => (
             <EditorSegment 
