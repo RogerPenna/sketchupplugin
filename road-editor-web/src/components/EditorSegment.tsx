@@ -157,17 +157,17 @@ export function EditorSegment({
         </Html>
       )}
 
-      {/* Pontos de Colisão Debug */}
+      {/* Pontos de Colisão Debug (Yellow Spheres) */}
       {roadGeometry.collisionPoints.map((p, idx) => (
-        <mesh key={idx} position={p}>
-          <sphereGeometry args={[0.3, 8, 8]} />
-          <meshBasicMaterial color="yellow" />
+        <mesh key={idx} position={p.clone().add(new THREE.Vector3(0, 0, 0.2))}>
+          <sphereGeometry args={[0.3, 16, 16]} />
+          <meshBasicMaterial color="yellow" depthTest={false} transparent opacity={0.9} />
         </mesh>
       ))}
 
       {/* Trilhos de Colisão Debug (Thin Red Lines) */}
       {roadGeometry.debugRails.map((rail, rIdx) => (
-        <Line key={rIdx} points={rail} color="red" lineWidth={1} transparent opacity={0.5} depthTest={false} />
+        <Line key={rIdx} points={rail.map(p => p.clone().add(new THREE.Vector3(0,0,0.15)))} color="red" lineWidth={1.5} transparent opacity={0.6} depthTest={false} />
       ))}
 
       <mesh position={n1.pos.clone().lerp(n2.pos, 0.5)} quaternion={new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0), n2.pos.clone().sub(n1.pos).normalize())} 
