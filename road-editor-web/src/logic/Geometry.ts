@@ -54,7 +54,7 @@ export class RoadGeometry {
     const handle = node.handles[edgeId];
     if (!handle) return node.pos.clone();
     const dir = isStart ? handle.clone().sub(node.pos).normalize() : node.pos.clone().sub(handle).normalize();
-    const perp = new THREE.Vector3(dir.y, -dir.x, 0).normalize();
+    const perp = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0,0,1)).normalize();
     const wl = node.lane_l + node.sw_l, wr = node.lane_r + node.sw_r;
     let shift = align === 'LEFT' ? -wl : (align === 'RIGHT' ? wr : 0);
     let anchorShift = anchor === 'LEFT' ? shift + wl : (anchor === 'RIGHT' ? shift - wr : shift);
@@ -68,21 +68,14 @@ export class RoadGeometry {
     const h2 = n2.handles[edgeId] || n2.pos.clone().add(p1.clone().sub(p2).multiplyScalar(0.33));
     const curve = new THREE.CubicBezierCurve3(p1, h1, h2, p2);
     
-    // Detecção de reta: se endpoints e handles são colineares
-    const dir = p2.clone().sub(p1).normalize();
-    const isStraight = h1.clone().sub(p1).normalize().dot(dir) > 0.9999 && p2.clone().sub(h2).normalize().dot(dir) > 0.9999;
-    
-    const mode = edge?.resMode || 'FIXED';
-    let div = isStraight ? 1 : Math.round(edge?.resValue || edge?.resolution || segments || 24);
-    if (mode === 'LENGTH') div = Math.max(1, Math.ceil(curve.getLength() / (edge?.resValue || 1)));
-
+    const div = Math.round(edge?.resValue || edge?.resolution || segments || 24);
     const points: PathPoint[] = [];
     for (let i = 0; i <= div; i++) {
       const t = i / div;
       const tangent = curve.getTangent(t).normalize();
       points.push({
         pos: curve.getPoint(t),
-        perp: new THREE.Vector3(tangent.y, -tangent.x, 0).normalize(),
+        perp: new THREE.Vector3().crossVectors(tangent, new THREE.Vector3(0, 0, 1)).normalize(),
         ll: n1.lane_l + (n2.lane_l - n1.lane_l) * t,
         lr: n1.lane_r + (n2.lane_r - n1.lane_r) * t,
         sl: n1.sw_l + (n2.sw_l - n1.sw_l) * t,
@@ -95,19 +88,20 @@ export class RoadGeometry {
 
   static calculateTrim(edge: EdgeData, allEdges: EdgeData[], nodesMap: Record<string, NodeData>): TrimResult {
     const n1 = nodesMap[edge.n1], n2 = nodesMap[edge.n2];
-    if (!n1 || !n2) return { tStart: 0, tEnd: 1 };
-    const fullPath = this.generateBezierPath(n1, n2, edge.id, 100, edge);
+    if (!n1 || !n2) return { tStart: 0, tEnd: 1, debugRails: [] };
+    
+    const fullPath = this.generateBezierPath(n1, n2, edge.id, 60, edge);
     const fullRails = this.calculateRawRails(fullPath);
     let tStart = 0, tEnd = 1, startPoint: THREE.Vector3|undefined, endPoint: THREE.Vector3|undefined;
-    const debugRails: THREE.Vector3[][] = [[...fullRails.l_sw], [...fullRails.r_sw]];
+    const debugRails: THREE.Vector3[][] = [fullRails.l_sw, fullRails.r_sw];
 
     const checkNode = (nodeId: string, isStart: boolean) => {
       const myNodePos = isStart ? n1.pos : n2.pos;
-      const maxDist = (n1.lane_l + n1.lane_r + n1.sw_l + n1.sw_r) * 1.5; // Busca ultra-localizada
+      const maxDist = (n1.lane_l + n1.lane_r + n1.sw_l + n1.sw_r) * 2.0; 
       allEdges.filter(e => e.id !== edge.id && (e.n1 === nodeId || e.n2 === nodeId)).forEach(nb => {
         const nbN1 = nodesMap[nb.n1], nbN2 = nodesMap[nb.n2];
         if (!nbN1 || !nbN2) return;
-        const nbPath = this.generateBezierPath(nbN1, nbN2, nb.id, 100, nb);
+        const nbPath = this.generateBezierPath(nbN1, nbN2, nb.id, 40, nb);
         const nbRails = this.calculateRawRails(nbPath);
         debugRails.push(nbRails.l_sw, nbRails.r_sw);
         const combos = [{a: fullRails.l_sw, b: nbRails.l_sw}, {a: fullRails.l_sw, b: nbRails.r_sw}, {a: fullRails.r_sw, b: nbRails.l_sw}, {a: fullRails.r_sw, b: nbRails.r_sw}];
@@ -130,10 +124,12 @@ export class RoadGeometry {
     path.forEach(d => {
       const wl = d.ll + d.sl, wr = d.lr + d.sr;
       const shift = d.alignment === 'LEFT' ? -wl : (d.alignment === 'RIGHT' ? wr : 0);
-      const c = d.pos.clone().add(d.perp.clone().multiplyScalar(shift));
+      // O deslocamento aqui deve compensar o fato do Bezier já estar no alinhamento
+      const toCenter = -shift; 
+      const c = d.pos.clone().add(d.perp.clone().multiplyScalar(toCenter));
       center.push(c);
-      l_sw.push(c.clone().add(d.perp.clone().multiplyScalar(wl)));
-      r_sw.push(c.clone().add(d.perp.clone().multiplyScalar(-wr)));
+      l_sw.push(c.clone().add(d.perp.clone().multiplyScalar(d.ll + d.sl)));
+      r_sw.push(c.clone().add(d.perp.clone().multiplyScalar(-(d.lr + d.sr))));
     });
     return { center, l_sw, r_sw };
   }
@@ -159,7 +155,7 @@ export class RoadGeometry {
     if (Math.abs(det) < 0.000001) return null;
     const ua = ((p4.x - p3.x) * (p1.y - p3.y) - (p4.y - p3.y) * (p1.x - p3.x)) / det;
     const ub = ((p2.x - p1.x) * (p1.y - p3.y) - (p2.y - p1.y) * (p1.x - p3.x)) / det;
-    return (ua >= -0.001 && ua <= 1.001 && ub >= -0.001 && ub <= 1.001) ? new THREE.Vector2(p1.x + ua * (p2.x - p1.x), p1.y + ua * (p2.y - p1.y)) : null;
+    return (ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1) ? new THREE.Vector2(p1.x + ua * (p2.x - p1.x), p1.y + ua * (p2.y - p1.y)) : null;
   }
 
   private static findClosestT(centerline: THREE.Vector3[], point: THREE.Vector3): number {
@@ -178,20 +174,28 @@ export class RoadGeometry {
 
   static calculateAllEdges(allData: PathPoint[], tStart: number = 0, tEnd: number = 1): any[] {
     if (allData.length < 2 || tStart >= tEnd - 0.001) return [];
-    const n = allData.length, final: PathPoint[] = [];
-    const sIdx = Math.min(n - 2, Math.floor(tStart * (n - 1))), sFact = tStart * (n - 1) - sIdx;
-    final.push(this.interpolatePP(allData[sIdx], allData[sIdx+1], sFact));
-    for (let i = 0; i < n; i++) {
-      const t = i / (n - 1);
-      if (t > tStart + 0.00001 && t < tEnd - 0.00001) final.push(allData[i]);
+    const nFull = allData.length, finalPoints: PathPoint[] = [];
+    const sIdx = Math.min(nFull - 2, Math.floor(tStart * (nFull - 1))), sFact = tStart * (nFull - 1) - sIdx;
+    finalPoints.push(this.interpolatePP(allData[sIdx], allData[sIdx+1], sFact));
+    for (let i = 0; i < nFull; i++) {
+      const t = i / (nFull - 1);
+      if (t > tStart + 0.00001 && t < tEnd - 0.00001) finalPoints.push(allData[i]);
     }
-    const eIdx = Math.min(n - 2, Math.floor(tEnd * (n - 1))), eFact = tEnd * (n - 1) - eIdx;
-    if (tEnd > tStart + 0.00001) final.push(this.interpolatePP(allData[eIdx], allData[eIdx+1], eFact));
-    return final.map(d => {
+    const eIdx = Math.min(nFull - 2, Math.floor(tEnd * (nFull - 1))), eFact = tEnd * (nFull - 1) - eIdx;
+    if (tEnd > tStart + 0.00001) finalPoints.push(this.interpolatePP(allData[eIdx], allData[eIdx+1], eFact));
+    
+    return finalPoints.map(d => {
       const wl = d.ll + d.sl, wr = d.lr + d.sr;
       const shift = d.alignment === 'LEFT' ? -wl : (d.alignment === 'RIGHT' ? wr : 0);
-      const c = d.pos.clone().add(d.perp.clone().multiplyScalar(shift));
-      return { center: c.clone(), l_lane: c.clone().add(d.perp.clone().multiplyScalar(d.ll)), r_lane: c.clone().add(d.perp.clone().multiplyScalar(-d.lr)), l_sw: c.clone().add(d.perp.clone().multiplyScalar(wl)), r_sw: c.clone().add(d.perp.clone().multiplyScalar(-wr)) };
+      const toCenter = -shift;
+      const c = d.pos.clone().add(d.perp.clone().multiplyScalar(toCenter));
+      return { 
+        center: c, 
+        l_lane: c.clone().add(d.perp.clone().multiplyScalar(d.ll)), 
+        r_lane: c.clone().add(d.perp.clone().multiplyScalar(-d.lr)), 
+        l_sw: c.clone().add(d.perp.clone().multiplyScalar(d.ll + d.sl)), 
+        r_sw: c.clone().add(d.perp.clone().multiplyScalar(-(d.lr + d.sr))) 
+      };
     });
   }
 
