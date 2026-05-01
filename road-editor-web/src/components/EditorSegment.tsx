@@ -62,62 +62,80 @@ export function EditorSegment({
     const trim = RoadGeometry.calculateTrim(edge, allEdges, nodesMap);
 
     // 3. Gerar as arestas finais apenas para a janela visível [tStart, tEnd]
-    const edgesArr = RoadGeometry.calculateAllEdges(pathPoints, trim.tStart, trim.tEnd);
+    const activeEdges = RoadGeometry.calculateAllEdges(pathPoints, trim.tStart, trim.tEnd);
+    
+    // 4. Gerar arestas fantasma (trimmed parts)
+    const ghostStartEdges = trim.tStart > 0.001 ? RoadGeometry.calculateAllEdges(pathPoints, 0, trim.tStart) : [];
+    const ghostEndEdges = trim.tEnd < 0.999 ? RoadGeometry.calculateAllEdges(pathPoints, trim.tEnd, 1) : [];
 
-    const parts = {
-      laneL: { v: [] as number[], i: [] as number[], li: [] as number[], c: [] as number[] },
-      laneR: { v: [] as number[], i: [] as number[], li: [] as number[], c: [] as number[] },
-      swL: { v: [] as number[], i: [] as number[], li: [] as number[], c: [] as number[] },
-      swR: { v: [] as number[], i: [] as number[], li: [] as number[], c: [] as number[] }
-    };
+    const createParts = (edgesArr: any[], isGhost: boolean) => {
+      const parts = {
+        laneL: { v: [] as number[], i: [] as number[], li: [] as number[], c: [] as number[] },
+        laneR: { v: [] as number[], i: [] as number[], li: [] as number[], c: [] as number[] },
+        swL: { v: [] as number[], i: [] as number[], li: [] as number[], c: [] as number[] },
+        swR: { v: [] as number[], i: [] as number[], li: [] as number[], c: [] as number[] }
+      };
 
-    const addQ = (
-      p1: THREE.Vector3, p2: THREE.Vector3, p3: THREE.Vector3, p4: THREE.Vector3,
-      target: { v: number[], i: number[], li: number[], c: number[] },
-      baseColor: THREE.Color,
-      shading: number
-    ) => {
-      const off = target.v.length / 3; 
-      target.v.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, p3.x, p3.y, p3.z, p4.x, p4.y, p4.z); 
-      target.i.push(off, off + 1, off + 2, off, off + 2, off + 3);
-      target.li.push(off, off + 1, off + 1, off + 2, off + 2, off + 3, off + 3, off);
-      const c = baseColor.clone().multiplyScalar(shading);
-      for (let i = 0; i < 4; i++) target.c.push(c.r, c.g, c.b);
-    };
+      const addQ = (
+        p1: THREE.Vector3, p2: THREE.Vector3, p3: THREE.Vector3, p4: THREE.Vector3,
+        target: { v: number[], i: number[], li: number[], c: number[] },
+        baseColor: THREE.Color,
+        shading: number
+      ) => {
+        const off = target.v.length / 3; 
+        target.v.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, p3.x, p3.y, p3.z, p4.x, p4.y, p4.z); 
+        target.i.push(off, off + 1, off + 2, off, off + 2, off + 3);
+        target.li.push(off, off + 1, off + 1, off + 2, off + 2, off + 3, off + 3, off);
+        const c = baseColor.clone().multiplyScalar(shading);
+        for (let i = 0; i < 4; i++) target.c.push(c.r, c.g, c.b);
+      };
 
-    for (let j = 0; j < edgesArr.length - 1; j++) { 
-      const e1 = edgesArr[j], e2 = edgesArr[j+1]; 
-      const dir = e2.center.clone().sub(e1.center).normalize();
-      const slope = Math.abs(dir.z);
-      const shading = 1.0 - (slope * 0.6);
+      for (let j = 0; j < edgesArr.length - 1; j++) { 
+        const e1 = edgesArr[j], e2 = edgesArr[j+1]; 
+        const dir = e2.center.clone().sub(e1.center).normalize();
+        const slope = Math.abs(dir.z);
+        const shading = 1.0 - (slope * 0.6);
 
-      const colorLane = isSelected ? "#add8e6" : (trim.error ? "#ffcccc" : "#ccc");
-      const colorSW = isSelected ? "#c0e8f0" : (trim.error ? "#ffe0e0" : "#ddd");
+        let colorLaneStr = isSelected ? "#add8e6" : (trim.error ? "#ffcccc" : "#ccc");
+        let colorSWStr = isSelected ? "#c0e8f0" : (trim.error ? "#ffe0e0" : "#ddd");
 
-      addQ(e1.center, e1.l_lane, e2.l_lane, e2.center, parts.laneL, new THREE.Color(colorLane), shading);
-      addQ(e1.center, e2.center, e2.r_lane, e1.r_lane, parts.laneR, new THREE.Color(colorLane), shading);
-      addQ(e1.l_lane, e1.l_sw, e2.l_sw, e2.l_lane, parts.swL, new THREE.Color(colorSW), shading);
-      addQ(e1.r_lane, e2.r_lane, e2.r_sw, e1.r_sw, parts.swR, new THREE.Color(colorSW), shading);
-    }
+        if (isGhost) {
+          colorLaneStr = "#3366ff"; // Azulado para fantasmas
+          colorSWStr = "#6699ff";
+        }
 
-    const createG = (v: number[], idx: number[], lIdx: number[], c: number[]) => { 
-      const g = new THREE.BufferGeometry(); 
-      g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3)); 
-      g.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
-      g.setIndex(idx); 
-      g.computeVertexNormals(); 
-      const lg = new THREE.BufferGeometry();
-      lg.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
-      lg.setIndex(lIdx);
-      return { fill: g, wire: lg }; 
+        addQ(e1.center, e1.l_lane, e2.l_lane, e2.center, parts.laneL, new THREE.Color(colorLaneStr), shading);
+        addQ(e1.center, e2.center, e2.r_lane, e1.r_lane, parts.laneR, new THREE.Color(colorLaneStr), shading);
+        addQ(e1.l_lane, e1.l_sw, e2.l_sw, e2.l_lane, parts.swL, new THREE.Color(colorSWStr), shading);
+        addQ(e1.r_lane, e2.r_lane, e2.r_sw, e1.r_sw, parts.swR, new THREE.Color(colorSWStr), shading);
+      }
+
+      const createG = (v: number[], idx: number[], lIdx: number[], c: number[]) => { 
+        const g = new THREE.BufferGeometry(); 
+        g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3)); 
+        g.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
+        g.setIndex(idx); 
+        g.computeVertexNormals(); 
+        const lg = new THREE.BufferGeometry();
+        lg.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+        lg.setIndex(lIdx);
+        return { fill: g, wire: lg }; 
+      };
+
+      return { 
+        laneL: createG(parts.laneL.v, parts.laneL.i, parts.laneL.li, parts.laneL.c),
+        laneR: createG(parts.laneR.v, parts.laneR.i, parts.laneR.li, parts.laneR.c),
+        swL: createG(parts.swL.v, parts.swL.i, parts.swL.li, parts.swL.c),
+        swR: createG(parts.swR.v, parts.swR.i, parts.swR.li, parts.swR.c),
+      };
     };
 
     return { 
-      laneL: createG(parts.laneL.v, parts.laneL.i, parts.laneL.li, parts.laneL.c),
-      laneR: createG(parts.laneR.v, parts.laneR.i, parts.laneR.li, parts.laneR.c),
-      swL: createG(parts.swL.v, parts.swL.i, parts.swL.li, parts.swL.c),
-      swR: createG(parts.swR.v, parts.swR.i, parts.swR.li, parts.swR.c),
-      trimError: trim.error
+      active: createParts(activeEdges, false),
+      ghostStart: ghostStartEdges.length > 0 ? createParts(ghostStartEdges, true) : null,
+      ghostEnd: ghostEndEdges.length > 0 ? createParts(ghostEndEdges, true) : null,
+      trimError: trim.error,
+      collisionPoints: [trim.startPoint, trim.endPoint].filter(Boolean) as THREE.Vector3[]
     };
   }, [
     n1.pos, n2.pos, n1.handles, n2.handles,
@@ -137,6 +155,15 @@ export function EditorSegment({
           </div>
         </Html>
       )}
+
+      {/* Pontos de Colisão Debug */}
+      {roadGeometry.collisionPoints.map((p, idx) => (
+        <mesh key={idx} position={p}>
+          <sphereGeometry args={[0.3, 8, 8]} />
+          <meshBasicMaterial color="yellow" />
+        </mesh>
+      ))}
+
       <mesh position={n1.pos.clone().lerp(n2.pos, 0.5)} quaternion={new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0), n2.pos.clone().sub(n1.pos).normalize())} 
         onClick={(e) => { 
           if (interactionMode === 'SELECT') {
@@ -157,19 +184,31 @@ export function EditorSegment({
       <Line points={[n1.pos, n2.pos]} color={isHovered ? "orange" : "#999"} lineWidth={isHovered ? 4 : 2} transparent opacity={0.3} depthTest={false} />
       <Line points={points} color={isSelected ? "#00ffff" : "#444"} lineWidth={isSelected ? 5 : 2} depthTest={false} />
       
+      {/* Renderização da Estrada Ativa */}
       {[
-        { data: roadGeometry.laneL, offset: 1 },
-        { data: roadGeometry.laneR, offset: 1 },
-        { data: roadGeometry.swL, offset: 2 },
-        { data: roadGeometry.swR, offset: 2 }
+        { data: roadGeometry.active.laneL, offset: 1 },
+        { data: roadGeometry.active.laneR, offset: 1 },
+        { data: roadGeometry.active.swL, offset: 2 },
+        { data: roadGeometry.active.swR, offset: 2 }
       ].map((part, idx) => (
-        <group key={idx}>
+        <group key={`active-${idx}`}>
           <mesh geometry={part.data.fill} castShadow>
             <meshLambertMaterial vertexColors side={THREE.DoubleSide} polygonOffset={true} polygonOffsetFactor={part.offset} polygonOffsetUnits={part.offset} />
           </mesh>
           <lineSegments geometry={part.data.wire}>
             <lineBasicMaterial color={isSelected ? "#005577" : "#777"} transparent opacity={0.8} depthTest={true} />
           </lineSegments>
+        </group>
+      ))}
+
+      {/* Renderização das Partes Fantasmas (Ghosts) */}
+      {[roadGeometry.ghostStart, roadGeometry.ghostEnd].filter(Boolean).map((ghost, gIdx) => (
+        <group key={`ghost-${gIdx}`}>
+          {[ghost!.laneL, ghost!.laneR, ghost!.swL, ghost!.swR].map((data, pIdx) => (
+            <mesh key={`p-${pIdx}`} geometry={data.fill}>
+              <meshLambertMaterial vertexColors side={THREE.DoubleSide} transparent opacity={0.3} depthWrite={false} />
+            </mesh>
+          ))}
         </group>
       ))}
       
