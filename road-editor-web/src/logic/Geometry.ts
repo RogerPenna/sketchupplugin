@@ -48,6 +48,7 @@ export interface TrimResult {
   tEnd: number;
   startPoint?: THREE.Vector3; // Ponto exato da colisão no início
   endPoint?: THREE.Vector3;   // Ponto exato da colisão no fim
+  debugRails?: THREE.Vector3[][]; // Trilhos usados para colisão (para debug)
   error?: string;
 }
 
@@ -91,8 +92,19 @@ export class RoadGeometry {
     const h2 = n2.handles[edgeId] || n1.pos.clone().add(p2.clone().sub(p1).multiplyScalar(0.66));
     const curve = new THREE.CubicBezierCurve3(p1, h1, h2, p2);
     
+    // Detecção rigorosa de linha reta
+    const dir = p2.clone().sub(p1).normalize();
+    const d1 = h1.clone().sub(p1).normalize();
+    const d2 = p2.clone().sub(h2).normalize();
+    const isStraight = d1.dot(dir) > 0.99999 && d2.dot(dir) > 0.99999;
+
     const mode = edge?.resMode || 'FIXED';
-    const val = edge?.resValue || (edge?.resolution || segments);
+    let val = edge?.resValue || (edge?.resolution || segments);
+    
+    // Se for reta e o usuário não forçou uma resolução, usa 1 segmento
+    if (isStraight && mode === 'FIXED' && !edge?.resValue && !edge?.resolution) {
+      val = 1;
+    }
 
     const createPP = (t: number): PathPoint => {
       const tangent = curve.getTangent(t).normalize();
@@ -109,7 +121,7 @@ export class RoadGeometry {
     };
 
     const divisionCount = mode === 'LENGTH' 
-      ? Math.max(2, Math.ceil(curve.getLength() / (val || 1)))
+      ? Math.max(1, Math.ceil(curve.getLength() / (val || 1)))
       : Math.round(val || 24);
     
     for (let i = 0; i <= divisionCount; i++) {
@@ -134,9 +146,14 @@ export class RoadGeometry {
     let tEnd = 1;
     let startPoint: THREE.Vector3 | undefined;
     let endPoint: THREE.Vector3 | undefined;
+    const debugRails: THREE.Vector3[][] = [fullRails.l_sw, fullRails.r_sw];
+
+    // Distância máxima de busca: 3x a largura total da estrada
+    const maxSearchDist = (n1.lane_l + n1.lane_r + n1.sw_l + n1.sw_r) * 3.0;
 
     const checkNode = (nodeId: string, isStart: boolean) => {
       const neighbors = allEdges.filter(e => e.id !== edge.id && (e.n1 === nodeId || e.n2 === nodeId));
+      const myNodePos = isStart ? n1.pos : n2.pos;
       
       neighbors.forEach(nb => {
         const nbN1 = nodesMap[nb.n1];
@@ -145,6 +162,7 @@ export class RoadGeometry {
 
         const nbPath = this.generateBezierPath(nbN1, nbN2, nb.id, 100, nb);
         const nbRails = this.calculateRawRails(nbPath);
+        debugRails.push(nbRails.l_sw, nbRails.r_sw);
 
         // Testar as 4 combinações de limites externos (L-L, L-R, R-L, R-R)
         const combinations = [
@@ -155,9 +173,8 @@ export class RoadGeometry {
         ];
 
         combinations.forEach(combo => {
-          const inter = this.findExtremeIntersection(combo.a, combo.b, isStart, nb.n1 === nodeId);
+          const inter = this.findExtremeIntersection(combo.a, combo.b, isStart, myNodePos, maxSearchDist);
           if (inter) {
-            // Projetar intersecção no eixo central para achar o 't'
             const t = this.findClosestT(fullRails.center, inter.point);
             if (isStart) {
               if (t > tStart) {
@@ -183,46 +200,12 @@ export class RoadGeometry {
       tEnd, 
       startPoint, 
       endPoint,
+      debugRails,
       error: tStart >= tEnd ? "Conflito Geométrico: Estradas sobrepostas" : undefined
     };
   }
 
-  private static interpolatePathPoint(p1: PathPoint, p2: PathPoint, factor: number): PathPoint {
-    return {
-      pos: new THREE.Vector3().lerpVectors(p1.pos, p2.pos, factor),
-      perp: new THREE.Vector3().lerpVectors(p1.perp, p2.perp, factor).normalize(),
-      ll: p1.ll + (p2.ll - p1.ll) * factor,
-      lr: p1.lr + (p2.lr - p1.lr) * factor,
-      sl: p1.sl + (p2.sl - p1.sl) * factor,
-      sr: p1.sr + (p2.sr - p1.sr) * factor,
-      tightTurnMode: p1.tightTurnMode,
-      alignment: p1.alignment
-    };
-  }
-
-  private static calculateRawRails(path: PathPoint[]) {
-    const n = path.length;
-    const center: THREE.Vector3[] = [];
-    const l_sw: THREE.Vector3[] = [];
-    const r_sw: THREE.Vector3[] = [];
-
-    for (let i = 0; i < n; i++) {
-      const d = path[i];
-      const perp = d.perp;
-      
-      let shift = 0;
-      if (d.alignment === 'LEFT') shift = -(d.ll + d.sl);
-      else if (d.alignment === 'RIGHT') shift = (d.lr + d.sr);
-
-      const c = d.pos.clone().add(perp.clone().multiplyScalar(shift));
-      center.push(c);
-      l_sw.push(c.clone().add(perp.clone().multiplyScalar(d.ll + d.sl)));
-      r_sw.push(c.clone().add(perp.clone().multiplyScalar(-(d.lr + d.sr))));
-    }
-    return { center, l_sw, r_sw };
-  }
-
-  private static findExtremeIntersection(polyA: THREE.Vector3[], polyB: THREE.Vector3[], fromStart: boolean, nbIsStart: boolean) {
+  private static findExtremeIntersection(polyA: THREE.Vector3[], polyB: THREE.Vector3[], fromStart: boolean, nodePos: THREE.Vector3, maxDist: number) {
     let bestT = fromStart ? -1 : 2;
     let bestResult = null;
     const nA = polyA.length;
@@ -230,16 +213,15 @@ export class RoadGeometry {
 
     for (let i = 0; i < nA - 1; i++) {
       const tA = i / (nA - 1);
-      if (fromStart && tA > 0.6) continue; // Slightly more permissive than 0.5
-      if (!fromStart && tA < 0.4) continue;
+      // Restrição na estrada principal
+      if (polyA[i].distanceTo(nodePos) > maxDist) continue;
 
       const a1 = new THREE.Vector2(polyA[i].x, polyA[i].y);
       const a2 = new THREE.Vector2(polyA[i+1].x, polyA[i+1].y);
 
       for (let j = 0; j < nB - 1; j++) {
-        const tB = j / (nB - 1);
-        if (nbIsStart && tB > 0.6) continue;
-        if (!nbIsStart && tB < 0.4) continue;
+        // Restrição na estrada vizinha (bilateral)
+        if (polyB[j].distanceTo(nodePos) > maxDist) continue;
 
         const b1 = new THREE.Vector2(polyB[j].x, polyB[j].y);
         const b2 = new THREE.Vector2(polyB[j+1].x, polyB[j+1].y);

@@ -135,7 +135,8 @@ export function EditorSegment({
       ghostStart: ghostStartEdges.length > 0 ? createParts(ghostStartEdges, true) : null,
       ghostEnd: ghostEndEdges.length > 0 ? createParts(ghostEndEdges, true) : null,
       trimError: trim.error,
-      collisionPoints: [trim.startPoint, trim.endPoint].filter(Boolean) as THREE.Vector3[]
+      collisionPoints: [trim.startPoint, trim.endPoint].filter(Boolean) as THREE.Vector3[],
+      debugRails: trim.debugRails || []
     };
   }, [
     n1.pos, n2.pos, n1.handles, n2.handles,
@@ -162,6 +163,11 @@ export function EditorSegment({
           <sphereGeometry args={[0.3, 8, 8]} />
           <meshBasicMaterial color="yellow" />
         </mesh>
+      ))}
+
+      {/* Trilhos de Colisão Debug (Thin Red Lines) */}
+      {roadGeometry.debugRails.map((rail, rIdx) => (
+        <Line key={rIdx} points={rail} color="red" lineWidth={1} transparent opacity={0.5} depthTest={false} />
       ))}
 
       <mesh position={n1.pos.clone().lerp(n2.pos, 0.5)} quaternion={new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0), n2.pos.clone().sub(n1.pos).normalize())} 
