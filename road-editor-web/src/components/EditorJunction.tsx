@@ -7,10 +7,12 @@ export function EditorJunction({
   node,
   allEdges,
   nodesMap,
+  showDebug,
 }: {
   node: NodeData;
   allEdges: EdgeData[];
   nodesMap: Record<string, NodeData>;
+  showDebug?: boolean;
 }) {
   const junctionData = useMemo(() => {
     const connectedEdges = allEdges.filter(e => e.n1 === node.id || e.n2 === node.id);
@@ -132,10 +134,12 @@ export function EditorJunction({
       </mesh>
 
       {/* Wireframe de Debug */}
-      <lineSegments>
-        <edgesGeometry attach="geometry" args={[junctionData.lane]} />
-        <lineBasicMaterial color="#999" transparent opacity={0.2} />
-      </lineSegments>
+      {showDebug && (
+        <lineSegments>
+          <edgesGeometry attach="geometry" args={[junctionData.lane]} />
+          <lineBasicMaterial color="#999" transparent opacity={0.2} />
+        </lineSegments>
+      )}
     </group>
   );
 }

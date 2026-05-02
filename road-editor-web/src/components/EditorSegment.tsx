@@ -17,6 +17,7 @@ export function EditorSegment({
   onSelect,
   onSceneClick,
   interactionMode,
+  showDebug,
 }: {
   edge: EdgeData;
   nodesMap: Record<string, NodeData>;
@@ -26,6 +27,7 @@ export function EditorSegment({
   onSelect: () => void;
   onSceneClick: (p: THREE.Vector3, nodeId?: string, edgeId?: string) => void;
   interactionMode: InteractionMode;
+  showDebug?: boolean;
 }) {
   const n1 = nodesMap[edge.n1], n2 = nodesMap[edge.n2];
   if (!n1 || !n2) return null;
@@ -158,7 +160,7 @@ export function EditorSegment({
       )}
 
       {/* Pontos de Colisão Debug (Yellow Spheres) */}
-      {roadGeometry.collisionPoints.map((p, idx) => (
+      {showDebug && roadGeometry.collisionPoints.map((p, idx) => (
         <mesh key={idx} position={p.clone().add(new THREE.Vector3(0, 0, 0.2))}>
           <sphereGeometry args={[0.3, 16, 16]} />
           <meshBasicMaterial color="yellow" depthTest={false} transparent opacity={0.9} />
@@ -166,7 +168,7 @@ export function EditorSegment({
       ))}
 
       {/* Trilhos de Colisão Debug (Thin Red Lines) */}
-      {roadGeometry.debugRails.map((rail, rIdx) => (
+      {showDebug && roadGeometry.debugRails.map((rail, rIdx) => (
         <Line key={rIdx} points={rail.map(p => p.clone().add(new THREE.Vector3(0,0,0.15)))} color="red" lineWidth={1.5} transparent opacity={0.6} depthTest={false} />
       ))}
 
@@ -208,7 +210,7 @@ export function EditorSegment({
       ))}
 
       {/* Renderização das Partes Fantasmas (Ghosts) */}
-      {[roadGeometry.ghostStart, roadGeometry.ghostEnd].filter(Boolean).map((ghost, gIdx) => (
+      {showDebug && [roadGeometry.ghostStart, roadGeometry.ghostEnd].filter(Boolean).map((ghost, gIdx) => (
         <group key={`ghost-${gIdx}`}>
           {[ghost!.laneL, ghost!.laneR, ghost!.swL, ghost!.swR].map((data, pIdx) => (
             <mesh key={`p-${pIdx}`} geometry={data.fill}>

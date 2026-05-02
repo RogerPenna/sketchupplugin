@@ -81,6 +81,7 @@ export function useRoadEditor() {
   const [snapStep, setSnapStep] = useState(1);
   const [isPerspective, setIsPerspective] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
+  const [showDebug, setShowDebug] = useState(true);
   const [layers, setLayers] = useState<LayerData[]>([]);
   const [activeChainStartId, setActiveChainStartId] = useState<string | null>(null);
   const [mousePointer, setMousePointer] = useState<THREE.Vector3>(new THREE.Vector3());
@@ -246,6 +247,7 @@ export function useRoadEditor() {
     snapStep, setSnapStep,
     isPerspective, setIsPerspective,
     showGrid, setShowGrid,
+    showDebug, setShowDebug,
     layers, setLayers,
     activeChainStartId, setActiveChainStartId,
     mousePointer, setMousePointer,

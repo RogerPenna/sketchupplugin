@@ -70,7 +70,7 @@ function SceneController({ editor }: { editor: ReturnType<typeof useRoadEditor> 
         onClick={(e) => { e.stopPropagation(); handleSceneClick(mousePointer, editor.hoveredNodeId, editor.hoveredEdgeId); }} 
         onPointerDown={(e) => { e.stopPropagation(); }}
         onDoubleClick={(e) => { e.stopPropagation(); editor.setActiveChainStartId(null); }} 
-        position={[0, 0, minZ - 0.2]} 
+        position={[0, 0, minZ - 0.4]} 
         receiveShadow
         renderOrder={0}
       >
@@ -100,23 +100,19 @@ function App() {
     hoveredNodeId, hoveredEdgeId,
     interactionMode, setInteractionMode, editMode, axisLock,
     useSnap, setUseSnap, snapStep, setSnapStep,
-    isPerspective, setIsPerspective, showGrid, setShowGrid,
+    isPerspective, setIsPerspective, showGrid, setShowGrid, showDebug, setShowDebug,
     layers, setLayers, activeChainStartId, mousePointer, is90Snapped,
     snapVec, minZ, handleSceneClick, handleImport
   } = editor;
 
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative', background: 'white' }}>
-      <div style={{ position: 'absolute', top: 20, right: 20, zIndex: 10, display: 'flex', gap: '5px', background: 'rgba(255,255,255,0.9)', padding: '5px', borderRadius: '8px' }}>
+      <div style={{ position: 'absolute', top: 20, right: 20, zIndex: 10, display: 'flex', gap: '5px', background: 'rgba(255,255,255,0.9)', padding: '5px', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}>
         <button className={`tool-btn ${canUndo ? '' : 'disabled'}`} onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)">↩️</button>
         <button className={`tool-btn ${canRedo ? '' : 'disabled'}`} onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Y)">↪️</button>
         <div style={{ width: '1px', background: '#ccc', margin: '0 5px' }} />
-        <button className={`tool-btn ${interactionMode === 'SELECT' ? 'active' : ''}`} onClick={() => { setInteractionMode('SELECT'); editor.setActiveChainStartId(null); }}>🖱️ Move/Select</button>
+        <button className={`tool-btn ${interactionMode === 'SELECT' ? 'active' : ''}`} onClick={() => { setInteractionMode('SELECT'); editor.setActiveChainStartId(null); }}>🖱️ Select</button>
         <button className={`tool-btn ${interactionMode === 'CREATE' ? 'active' : ''}`} onClick={() => setInteractionMode('CREATE')}>🛣️ Road Tool</button>
-        <div style={{ width: '1px', background: '#ccc', margin: '0 5px' }} />
-        <button className={`tool-btn ${isPerspective ? 'active' : ''}`} onClick={() => setIsPerspective(true)}>Persp</button><button className={`tool-btn ${!isPerspective ? 'active' : ''}`} onClick={() => setIsPerspective(false)}>Top</button>
-        <button className={`tool-btn ${showGrid ? 'active' : ''}`} onClick={() => setShowGrid(!showGrid)}>Grid</button>
-        <button className={`tool-btn ${useSnap ? 'active' : ''}`} onClick={() => setUseSnap(!useSnap)}>Snap: {useSnap ? snapStep+'m' : 'OFF'}</button>
       </div>
 
       <div style={{ position: 'absolute', top: 80, left: '50%', transform: 'translateX(-50%)', zIndex: 100, pointerEvents: 'none' }}>
@@ -125,7 +121,7 @@ function App() {
         </div>
       </div>
 
-      <div style={{ position: 'absolute', top: 20, left: 20, zIndex: 10, display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <div style={{ position: 'absolute', top: 20, left: 20, zIndex: 10, display: 'flex', flexDirection: 'column', gap: '15px', maxHeight: 'calc(100vh - 40px)', overflowY: 'auto', paddingRight: '10px' }}>
         <div style={{ background: 'rgba(255,255,255,0.95)', padding: '20px', borderRadius: '12px', width: '260px', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
           <h2 style={{ margin: '0 0 15px 0', fontSize: '1.2rem', fontWeight: 800 }}>ROAD EDITOR</h2>
           {selectedNodeId && nodes[selectedNodeId] && (
@@ -324,6 +320,29 @@ function App() {
             </div>
           )}
         </div>
+
+        <div style={{ background: 'rgba(255,255,255,0.95)', padding: '20px', borderRadius: '12px', width: '260px', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
+          <h2 style={{ fontSize: '1rem', fontWeight: 800, margin: '0 0 10px 0' }}>DISPLAY</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px', marginBottom: '10px' }}>
+            <button className={`tool-btn ${isPerspective ? 'active' : ''}`} onClick={() => setIsPerspective(true)}>Perspective</button>
+            <button className={`tool-btn ${!isPerspective ? 'active' : ''}`} onClick={() => setIsPerspective(false)}>Top View</button>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.8rem' }}>
+              <input type="checkbox" checked={showGrid} onChange={e => setShowGrid(e.target.checked)} />
+              Show Grid
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.8rem' }}>
+              <input type="checkbox" checked={useSnap} onChange={e => setUseSnap(e.target.checked)} />
+              Snap: {useSnap ? snapStep+'m' : 'OFF'}
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.8rem', color: '#d32f2f', fontWeight: 'bold' }}>
+              <input type="checkbox" checked={showDebug} onChange={e => setShowDebug(e.target.checked)} />
+              DEBUG VISUALS
+            </label>
+          </div>
+        </div>
+
         <div style={{ background: 'rgba(255,255,255,0.95)', padding: '20px', borderRadius: '12px', width: '260px', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
           <h2 style={{ fontSize: '1rem', fontWeight: 800 }}>LAYERS</h2>
           <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
@@ -337,7 +356,16 @@ function App() {
       <Canvas shadows={{ type: THREE.PCFShadowMap }} flat>
         <color attach="background" args={['white']} />
         {isPerspective ? <PerspectiveCamera makeDefault position={[30, -30, 30]} up={[0, 0, 1]} fov={45} /> : <OrthographicCamera makeDefault position={[0, 0, 50]} up={[0, 1, 0]} zoom={20} far={1000} near={-1000} />}
-        <OrbitControls ref={orbitRef} makeDefault enableRotate={isPerspective} />
+        <OrbitControls 
+          ref={orbitRef} 
+          makeDefault 
+          enableRotate={isPerspective} 
+          enableDamping={false} 
+          dampingFactor={0}
+          rotateSpeed={1.0}
+          panSpeed={1.0}
+          zoomSpeed={1.0}
+        />
         
         <ambientLight intensity={1.5} />
         <directionalLight 
@@ -393,6 +421,7 @@ function App() {
                 node={n}
                 allEdges={edges}
                 nodesMap={nodes}
+                showDebug={showDebug}
               />
             </group>
           ))}
@@ -407,6 +436,7 @@ function App() {
               onSelect={() => { setSelectedEdgeId(e.id); setSelectedNodeId(null); }} 
               onSceneClick={handleSceneClick} 
               interactionMode={interactionMode} 
+              showDebug={showDebug}
             />
           ))}
         </group>

@@ -9,16 +9,48 @@ export const X_COLOR = '#ff0000', Y_COLOR = '#00ff00', Z_COLOR = '#0000ff'
 export const GRID_COLOR = '#d1e7f0', GRID_SECTION_COLOR = '#a0c4d1'
 
 export function AdaptiveGrid({ visible, setSnapStep, minZ }: { visible: boolean, setSnapStep: (s: number) => void, minZ: number }) {
-  const { camera } = useThree();
-  const [config, setConfig] = useState({ cellSize: 1, sectionSize: 10, fadeDistance: 600 });
+  const { camera, size } = useThree();
+  const [config, setConfig] = useState({ cellSize: 10, sectionSize: 100 });
+  
   useFrame(() => {
     if (!visible) return;
-    let dist = (camera instanceof THREE.PerspectiveCamera) ? camera.position.length() : 600 / camera.zoom;
-    let newCell = dist > 800 ? 50 : (dist > 300 ? 10 : (dist < 40 ? 0.5 : 1));
-    if (config.cellSize !== newCell) { setConfig({ cellSize: newCell, sectionSize: newCell * 10, fadeDistance: newCell * 400 }); setSnapStep(newCell); }
+    
+    // Calcular a largura visível aproximada na horizontal em metros
+    let horizontalViewMeters = 100;
+    if (camera instanceof THREE.OrthographicCamera) {
+      horizontalViewMeters = size.width / camera.zoom;
+    } else if (camera instanceof THREE.PerspectiveCamera) {
+      // Use a distância real da câmera até a origem como métrica de zoom
+      // Isso evita que o grid mude para 1m apenas por baixar a câmera (Z baixo mas distância alta)
+      const dist = camera.position.length();
+      horizontalViewMeters = dist * Math.tan((camera.fov * Math.PI) / 360) * 2 * (size.width / size.height);
+    }
+
+    let newCell = 10; // Padrão
+    if (horizontalViewMeters < 50) {
+      newCell = 1;
+    } else if (horizontalViewMeters > 500) {
+      newCell = 100;
+    }
+
+    if (config.cellSize !== newCell) { 
+      setConfig({ 
+        cellSize: newCell, 
+        sectionSize: newCell * 10
+      }); 
+      setSnapStep(newCell); 
+    }
   });
+
   if (!visible) return null;
-  return <Grid position={[0, 0, minZ - 0.05]} infiniteGrid fadeDistance={config.fadeDistance} sectionSize={config.sectionSize} sectionThickness={1.5} sectionColor={GRID_SECTION_COLOR} cellSize={config.cellSize} cellThickness={0.8} cellColor={GRID_COLOR} rotation={[Math.PI / 2, 0, 0]} renderOrder={1} />;
+  return (
+    <gridHelper 
+      args={[10000, 10000 / config.cellSize, GRID_SECTION_COLOR, GRID_COLOR]}
+      position={[0, 0, minZ - 1.0]} 
+      rotation={[Math.PI / 2, 0, 0]} 
+      renderOrder={-10}
+    />
+  );
 }
 
 export function DragHandle({ direction, color, nodePos, onUpdate, onStart, onEnd, onSelect, size = 1.0, axisLock }: { 
@@ -84,10 +116,10 @@ export function DragHandle({ direction, color, nodePos, onUpdate, onStart, onEnd
 
 export function AxisLines() {
   return (
-    <group renderOrder={0}>
-      <Line points={[[-1000, 0, 0], [1000, 0, 0]]} color={X_COLOR} lineWidth={1} transparent opacity={0.5} depthTest={false} />
-      <Line points={[[0, -1000, 0], [0, 1000, 0]]} color={Y_COLOR} lineWidth={1} transparent opacity={0.5} depthTest={false} />
-      <Line points={[[0, 0, -1000], [0, 0, 1000]]} color={Z_COLOR} lineWidth={1} transparent opacity={0.5} depthTest={false} />
+    <group renderOrder={2}>
+      <Line points={[[-10000, 0, 0.005], [10000, 0, 0.005]]} color={X_COLOR} lineWidth={2} transparent opacity={0.7} depthTest={false} />
+      <Line points={[[0, -10000, 0.005], [0, 10000, 0.005]]} color={Y_COLOR} lineWidth={2} transparent opacity={0.7} depthTest={false} />
+      <Line points={[[0, 0, -10000], [0, 0, 10000]]} color={Z_COLOR} lineWidth={2} transparent opacity={0.5} depthTest={false} />
     </group>
   );
 }
