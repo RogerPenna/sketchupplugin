@@ -64,11 +64,11 @@ export function EditorSegment({
     const trim = RoadGeometry.calculateTrim(edge, allEdges, nodesMap);
 
     // 3. Gerar as arestas finais apenas para a janela visível [tStart, tEnd]
-    const activeEdges = RoadGeometry.calculateAllEdges(pathPoints, trim.tStart, trim.tEnd);
+    const activeEdges = RoadGeometry.calculateAllEdges(pathPoints, n1, n2, edge.id, trim.tStart, trim.tEnd);
     
     // 4. Gerar arestas fantasma (trimmed parts)
-    const ghostStartEdges = trim.tStart > 0.001 ? RoadGeometry.calculateAllEdges(pathPoints, 0, trim.tStart) : [];
-    const ghostEndEdges = trim.tEnd < 0.999 ? RoadGeometry.calculateAllEdges(pathPoints, trim.tEnd, 1) : [];
+    const ghostStartEdges = trim.tStart > 0.001 ? RoadGeometry.calculateAllEdges(pathPoints, n1, n2, edge.id, 0, trim.tStart) : [];
+    const ghostEndEdges = trim.tEnd < 0.999 ? RoadGeometry.calculateAllEdges(pathPoints, n1, n2, edge.id, trim.tEnd, 1) : [];
 
     const createParts = (edgesArr: any[], isGhost: boolean) => {
       const parts = {

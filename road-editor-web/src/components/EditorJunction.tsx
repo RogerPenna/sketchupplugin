@@ -33,9 +33,10 @@ export function EditorJunction({
       const isStart = edge.n1 === node.id;
       const trim = RoadGeometry.calculateTrim(edge, allEdges, nodesMap);
       
-      const pathPoints = RoadGeometry.generateBezierPath(nodesMap[edge.n1], nodesMap[edge.n2], edge.id, 24, edge);
+      const n1 = nodesMap[edge.n1], n2 = nodesMap[edge.n2];
+      const pathPoints = RoadGeometry.generateBezierPath(n1, n2, edge.id, 24, edge);
       const t = isStart ? trim.tStart : trim.tEnd;
-      const allEdgesData = RoadGeometry.calculateAllEdges(pathPoints, t, t);
+      const allEdgesData = RoadGeometry.calculateAllEdges(pathPoints, n1, n2, edge.id, t, t);
       
       if (allEdgesData.length > 0) {
         const s = allEdgesData[0];

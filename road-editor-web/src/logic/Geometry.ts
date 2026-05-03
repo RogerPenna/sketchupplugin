@@ -35,6 +35,7 @@ export interface PathPoint {
   sl: number;
   sr: number;
   alignment: Alignment;
+  t: number;
 }
 
 export interface TrimResult {
@@ -80,7 +81,8 @@ export class RoadGeometry {
         lr: n1.lane_r + (n2.lane_r - n1.lane_r) * t,
         sl: n1.sw_l + (n2.sw_l - n1.sw_l) * t,
         sr: n1.sw_r + (n2.sw_r - n1.sw_r) * t,
-        alignment: edge?.alignment || 'CENTER'
+        alignment: edge?.alignment || 'CENTER',
+        t
       });
     }
     return points;
@@ -97,7 +99,7 @@ export class RoadGeometry {
 
     const checkNode = (nodeId: string, isStart: boolean) => {
       const myNodePos = isStart ? n1.pos : n2.pos;
-      const maxDist = (n1.lane_l + n1.lane_r + n1.sw_l + n1.sw_r) * 2.0; 
+      const maxDist = (n1.lane_l + n1.lane_r + n1.sw_l + n1.sw_r) * 2.5; 
       allEdges.filter(e => e.id !== edge.id && (e.n1 === nodeId || e.n2 === nodeId)).forEach(nb => {
         const nbN1 = nodesMap[nb.n1], nbN2 = nodesMap[nb.n2];
         if (!nbN1 || !nbN2) return;
@@ -124,7 +126,6 @@ export class RoadGeometry {
     path.forEach(d => {
       const wl = d.ll + d.sl, wr = d.lr + d.sr;
       const shift = d.alignment === 'LEFT' ? -wl : (d.alignment === 'RIGHT' ? wr : 0);
-      // O deslocamento aqui deve compensar o fato do Bezier já estar no alinhamento
       const toCenter = -shift; 
       const c = d.pos.clone().add(d.perp.clone().multiplyScalar(toCenter));
       center.push(c);
@@ -138,9 +139,11 @@ export class RoadGeometry {
     let bestT = fromStart ? -1 : 2, bestResult = null;
     for (let i = 0; i < polyA.length - 1; i++) {
       const tA = i / (polyA.length - 1);
-      if (polyA[i].distanceTo(nodePos) > maxDist) continue;
+      const d2 = new THREE.Vector2(polyA[i].x, polyA[i].y).distanceTo(new THREE.Vector2(nodePos.x, nodePos.y));
+      if (d2 > maxDist) continue;
       for (let j = 0; j < polyB.length - 1; j++) {
-        if (polyB[j].distanceTo(nodePos) > maxDist) continue;
+        const d2b = new THREE.Vector2(polyB[j].x, polyB[j].y).distanceTo(new THREE.Vector2(nodePos.x, nodePos.y));
+        if (d2b > maxDist) continue;
         const pt = this.intersectSegments2D(new THREE.Vector2(polyA[i].x, polyA[i].y), new THREE.Vector2(polyA[i+1].x, polyA[i+1].y), new THREE.Vector2(polyB[j].x, polyB[j].y), new THREE.Vector2(polyB[j+1].x, polyB[j+1].y));
         if (pt && ((fromStart && tA > bestT) || (!fromStart && tA < bestT))) {
           bestT = tA; bestResult = { point: new THREE.Vector3(pt.x, pt.y, polyA[i].z), tIndex: i };
@@ -154,7 +157,7 @@ export class RoadGeometry {
     const det = (p2.x - p1.x) * (p4.y - p3.y) - (p2.y - p1.y) * (p4.x - p3.x);
     if (Math.abs(det) < 0.000001) return null;
     const ua = ((p4.x - p3.x) * (p1.y - p3.y) - (p4.y - p3.y) * (p1.x - p3.x)) / det;
-    const ub = ((p2.x - p1.x) * (p1.y - p3.y) - (p2.y - p1.y) * (p1.x - p3.x)) / det;
+    const ub = ((p2.x - p1.x) * (p1.y - p3.y) - (p2.y - p1.y) * (p4.x - p3.x)) / det;
     return (ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1) ? new THREE.Vector2(p1.x + ua * (p2.x - p1.x), p1.y + ua * (p2.y - p1.y)) : null;
   }
 
@@ -172,7 +175,7 @@ export class RoadGeometry {
     return closestT;
   }
 
-  static calculateAllEdges(allData: PathPoint[], tStart: number = 0, tEnd: number = 1): any[] {
+  static calculateAllEdges(allData: PathPoint[], n1: NodeData, n2: NodeData, edgeId: string, tStart: number = 0, tEnd: number = 1): any[] {
     if (allData.length < 2 || tStart >= tEnd - 0.001) return [];
     const nFull = allData.length, finalPoints: PathPoint[] = [];
     const sIdx = Math.min(nFull - 2, Math.floor(tStart * (nFull - 1))), sFact = tStart * (nFull - 1) - sIdx;
@@ -184,11 +187,25 @@ export class RoadGeometry {
     const eIdx = Math.min(nFull - 2, Math.floor(tEnd * (nFull - 1))), eFact = tEnd * (nFull - 1) - eIdx;
     if (tEnd > tStart + 0.00001) finalPoints.push(this.interpolatePP(allData[eIdx], allData[eIdx+1], eFact));
     
+    // Extract Bezier handle Zs for the remapped curve
+    const h1z = n1.handles[edgeId]?.z ?? n1.pos.z;
+    const h2z = n2.handles[edgeId]?.z ?? n2.pos.z;
+    const zCurve = (u: number) => {
+      const u1 = 1 - u;
+      return u1*u1*u1 * n1.pos.z + 3*u1*u1*u * h1z + 3*u1*u*u * h2z + u*u*u * n2.pos.z;
+    };
+
     return finalPoints.map(d => {
       const wl = d.ll + d.sl, wr = d.lr + d.sr;
       const shift = d.alignment === 'LEFT' ? -wl : (d.alignment === 'RIGHT' ? wr : 0);
       const toCenter = -shift;
-      const c = d.pos.clone().add(d.perp.clone().multiplyScalar(toCenter));
+      
+      const u = (d.t - tStart) / Math.max(0.0001, (tEnd - tStart));
+      const clampedU = Math.max(0, Math.min(1, u));
+      const pos = d.pos.clone();
+      pos.z = zCurve(clampedU);
+
+      const c = pos.clone().add(d.perp.clone().multiplyScalar(toCenter));
       return { 
         center: c, 
         l_lane: c.clone().add(d.perp.clone().multiplyScalar(d.ll)), 
@@ -200,6 +217,15 @@ export class RoadGeometry {
   }
 
   private static interpolatePP(p1: PathPoint, p2: PathPoint, f: number): PathPoint {
-    return { pos: new THREE.Vector3().lerpVectors(p1.pos, p2.pos, f), perp: new THREE.Vector3().lerpVectors(p1.perp, p2.perp, f).normalize(), ll: p1.ll + (p2.ll - p1.ll) * f, lr: p1.lr + (p2.lr - p1.lr) * f, sl: p1.sl + (p2.sl - p1.sl) * f, sr: p1.sr + (p2.sr - p1.sr) * f, alignment: p1.alignment };
+    return { 
+      pos: new THREE.Vector3().lerpVectors(p1.pos, p2.pos, f), 
+      perp: new THREE.Vector3().lerpVectors(p1.perp, p2.perp, f).normalize(), 
+      ll: p1.ll + (p2.ll - p1.ll) * f, 
+      lr: p1.lr + (p2.lr - p1.lr) * f, 
+      sl: p1.sl + (p2.sl - p1.sl) * f, 
+      sr: p1.sr + (p2.sr - p1.sr) * f, 
+      alignment: p1.alignment,
+      t: p1.t + (p2.t - p1.t) * f
+    };
   }
 }
