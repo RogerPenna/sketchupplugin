@@ -46,7 +46,7 @@ export function AdaptiveGrid({ visible, setSnapStep, minZ }: { visible: boolean,
   return (
     <gridHelper 
       args={[10000, 10000 / config.cellSize, GRID_SECTION_COLOR, GRID_COLOR]}
-      position={[0, 0, minZ - 1.0]} 
+      position={[0, 0, minZ]} 
       rotation={[Math.PI / 2, 0, 0]} 
       renderOrder={-10}
     />
@@ -114,11 +114,11 @@ export function DragHandle({ direction, color, nodePos, onUpdate, onStart, onEnd
   );
 }
 
-export function AxisLines() {
+export function AxisLines({ offset = 0.005 }: { offset?: number }) {
   return (
     <group renderOrder={2}>
-      <Line points={[[-10000, 0, 0.005], [10000, 0, 0.005]]} color={X_COLOR} lineWidth={2} transparent opacity={0.7} depthTest={false} />
-      <Line points={[[0, -10000, 0.005], [0, 10000, 0.005]]} color={Y_COLOR} lineWidth={2} transparent opacity={0.7} depthTest={false} />
+      <Line points={[[-10000, 0, offset], [10000, 0, offset]]} color={X_COLOR} lineWidth={2} transparent opacity={0.7} depthTest={false} />
+      <Line points={[[0, -10000, offset], [0, 10000, offset]]} color={Y_COLOR} lineWidth={2} transparent opacity={0.7} depthTest={false} />
       <Line points={[[0, 0, -10000], [0, 0, 10000]]} color={Z_COLOR} lineWidth={2} transparent opacity={0.5} depthTest={false} />
     </group>
   );

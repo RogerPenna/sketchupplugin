@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
 import { OrbitControls, PerspectiveCamera, OrthographicCamera, Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
@@ -13,12 +13,131 @@ import type { NodeData } from './logic/Geometry'
 
 import './App.css'
 
+function SettingsModal({ isOpen, onClose, editor }: { isOpen: boolean, onClose: () => void, editor: any }) {
+  const [activeTab, setActiveTab] = useState('View');
+  if (!isOpen) return null;
+
+  return (
+    <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.5)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: 'white', width: '400px', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,0.2)' }}>
+        <div style={{ background: '#f5f5f5', padding: '15px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ddd' }}>
+          <h3 style={{ margin: 0 }}>Settings</h3>
+          <button onClick={onClose} style={{ border: 'none', background: 'none', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
+        </div>
+        <div style={{ display: 'flex', borderBottom: '1px solid #eee' }}>
+          <button 
+            onClick={() => setActiveTab('View')} 
+            style={{ flex: 1, padding: '12px', border: 'none', background: activeTab === 'View' ? 'white' : '#f9f9f9', borderBottom: activeTab === 'View' ? '2px solid #2196F3' : 'none', fontWeight: activeTab === 'View' ? 'bold' : 'normal', cursor: 'pointer' }}
+          >View</button>
+          <button 
+            onClick={() => setActiveTab('Road')} 
+            style={{ flex: 1, padding: '12px', border: 'none', background: activeTab === 'Road' ? 'white' : '#f9f9f9', borderBottom: activeTab === 'Road' ? '2px solid #2196F3' : 'none', fontWeight: activeTab === 'Road' ? 'bold' : 'normal', cursor: 'pointer' }}
+          >Default Road</button>
+          <button 
+            onClick={() => setActiveTab('General')} 
+            style={{ flex: 1, padding: '12px', border: 'none', background: activeTab === 'General' ? 'white' : '#f9f9f9', borderBottom: activeTab === 'General' ? '2px solid #2196F3' : 'none', fontWeight: activeTab === 'General' ? 'bold' : 'normal', cursor: 'pointer' }}
+          >General</button>
+        </div>
+        <div style={{ padding: '20px', minHeight: '300px', maxHeight: '60vh', overflowY: 'auto' }}>
+          {activeTab === 'View' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+              <div>
+                <label style={{ fontSize: '0.9rem', fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>Vertical Offsets (from Z=0)</label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                    <span style={{ fontSize: '0.75rem', color: '#666' }}>Shadow Plane</span>
+                    <NumericInput value={editor.shadowOffset} onChange={editor.setShadowOffset} label="Z Offset" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                    <span style={{ fontSize: '0.75rem', color: '#666' }}>Grid Level</span>
+                    <NumericInput value={editor.gridOffset} onChange={editor.setGridOffset} label="Z Offset" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                    <span style={{ fontSize: '0.75rem', color: '#666' }}>Axis Height</span>
+                    <NumericInput value={editor.axisOffset} onChange={editor.setAxisOffset} label="Z Offset" />
+                  </div>
+                </div>
+                <p style={{ fontSize: '0.7rem', color: '#888', marginTop: '10px' }}>* Tip: Use values like -0.1 to -2.0 to avoid Z-fighting with roads.</p>
+              </div>
+            </div>
+          )}
+          {activeTab === 'Road' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <section>
+                <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#444', display: 'block', marginBottom: '10px' }}>DEFAULT WIDTHS (meters)</label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <NumericInput label="Lane L" value={editor.defaultRoadSettings.lane_l} onChange={v => editor.setDefaultRoadSettings((p: any) => ({ ...p, lane_l: v }))} />
+                  <NumericInput label="Lane R" value={editor.defaultRoadSettings.lane_r} onChange={v => editor.setDefaultRoadSettings((p: any) => ({ ...p, lane_r: v }))} />
+                  <NumericInput label="Sidewalk L" value={editor.defaultRoadSettings.sw_l} onChange={v => editor.setDefaultRoadSettings((p: any) => ({ ...p, sw_l: v }))} />
+                  <NumericInput label="Sidewalk R" value={editor.defaultRoadSettings.sw_r} onChange={v => editor.setDefaultRoadSettings((p: any) => ({ ...p, sw_r: v }))} />
+                </div>
+              </section>
+              
+              <section style={{ borderTop: '1px solid #eee', paddingTop: '15px' }}>
+                <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#444', display: 'block', marginBottom: '10px' }}>GEOMETRY DEFAULTS</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <label style={{ fontSize: '0.75rem', color: '#666' }}>Resolution Mode
+                    <select 
+                      value={editor.defaultRoadSettings.resMode} 
+                      onChange={e => editor.setDefaultRoadSettings((p: any) => ({ ...p, resMode: e.target.value as any }))}
+                      style={{ width: '100%', padding: '6px', marginTop: '4px' }}
+                    >
+                      <option value="FIXED">Fixed Divisions</option>
+                      <option value="LENGTH">By Length (m)</option>
+                      <option value="ANGLE">By Angle (°)</option>
+                      <option value="ERROR">Chord Error (m)</option>
+                    </select>
+                  </label>
+                  <NumericInput 
+                    label="Value" 
+                    value={editor.defaultRoadSettings.resValue} 
+                    onChange={v => editor.setDefaultRoadSettings((p: any) => ({ ...p, resValue: v }))} 
+                  />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <label style={{ fontSize: '0.75rem', color: '#666' }}>Alignment
+                      <select 
+                        value={editor.defaultRoadSettings.alignment} 
+                        onChange={e => editor.setDefaultRoadSettings((p: any) => ({ ...p, alignment: e.target.value as any }))}
+                        style={{ width: '100%', padding: '6px', marginTop: '4px' }}
+                      >
+                        <option value="CENTER">Center</option>
+                        <option value="LEFT">Left</option>
+                        <option value="RIGHT">Right</option>
+                      </select>
+                    </label>
+                    <label style={{ fontSize: '0.75rem', color: '#666' }}>Turn Mode
+                      <select 
+                        value={editor.defaultRoadSettings.tightTurnMode} 
+                        onChange={e => editor.setDefaultRoadSettings((p: any) => ({ ...p, tightTurnMode: e.target.value as any }))}
+                        style={{ width: '100%', padding: '6px', marginTop: '4px' }}
+                      >
+                        <option value="APEX">Apex</option>
+                        <option value="CLEAN">Clean</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              </section>
+            </div>
+          )}
+          {activeTab === 'General' && (
+            <div style={{ color: '#666', textAlign: 'center', paddingTop: '40px' }}>No general settings yet.</div>
+          )}
+        </div>
+        <div style={{ padding: '15px 20px', background: '#f5f5f5', textAlign: 'right', borderTop: '1px solid #ddd' }}>
+          <button onClick={onClose} style={{ padding: '8px 20px', borderRadius: '6px', border: 'none', background: '#2196F3', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SceneController({ editor }: { editor: ReturnType<typeof useRoadEditor> }) {
   const { scene, raycaster } = useThree();
   const { 
     interactionMode, activeChainStartId, nodes, edges, 
     setHoveredNodeId, setHoveredEdgeId, setMousePointer, setIs90Snapped,
-    snapVec, handleSceneClick, mousePointer, is90Snapped, minZ
+    snapVec, handleSceneClick, mousePointer, is90Snapped, minZ, shadowOffset
   } = editor;
 
   const onPointerMove = (e: any) => {
@@ -70,7 +189,7 @@ function SceneController({ editor }: { editor: ReturnType<typeof useRoadEditor> 
         onClick={(e) => { e.stopPropagation(); handleSceneClick(mousePointer, editor.hoveredNodeId, editor.hoveredEdgeId); }} 
         onPointerDown={(e) => { e.stopPropagation(); }}
         onDoubleClick={(e) => { e.stopPropagation(); editor.setActiveChainStartId(null); }} 
-        position={[0, 0, minZ - 0.4]} 
+        position={[0, 0, minZ + shadowOffset]} 
         receiveShadow
         renderOrder={0}
       >
@@ -92,6 +211,7 @@ function SceneController({ editor }: { editor: ReturnType<typeof useRoadEditor> 
 function App() {
   const editor = useRoadEditor();
   const orbitRef = useRef<any>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const {
     nodes, setNodes, edges, setEdges,
@@ -101,12 +221,15 @@ function App() {
     interactionMode, setInteractionMode, editMode, axisLock,
     useSnap, setUseSnap, snapStep, setSnapStep,
     isPerspective, setIsPerspective, showGrid, setShowGrid, showDebug, setShowDebug,
+    shadowOffset, gridOffset, axisOffset,
     layers, setLayers, activeChainStartId, mousePointer, is90Snapped,
     snapVec, minZ, handleSceneClick, handleImport
   } = editor;
 
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative', background: 'white' }}>
+      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} editor={editor} />
+      
       <div style={{ position: 'absolute', top: 20, right: 20, zIndex: 10, display: 'flex', gap: '5px', background: 'rgba(255,255,255,0.9)', padding: '5px', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}>
         <button className={`tool-btn ${canUndo ? '' : 'disabled'}`} onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)">↩️</button>
         <button className={`tool-btn ${canRedo ? '' : 'disabled'}`} onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Y)">↪️</button>
@@ -123,7 +246,10 @@ function App() {
 
       <div style={{ position: 'absolute', top: 20, left: 20, zIndex: 10, display: 'flex', flexDirection: 'column', gap: '15px', maxHeight: 'calc(100vh - 40px)', overflowY: 'auto', paddingRight: '10px' }}>
         <div style={{ background: 'rgba(255,255,255,0.95)', padding: '20px', borderRadius: '12px', width: '260px', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
-          <h2 style={{ margin: '0 0 15px 0', fontSize: '1.2rem', fontWeight: 800 }}>ROAD EDITOR</h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+            <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800 }}>ROAD EDITOR</h2>
+            <button className="tool-btn" onClick={() => setIsSettingsOpen(true)} style={{ padding: '4px 8px' }}>⚙️</button>
+          </div>
           {selectedNodeId && nodes[selectedNodeId] && (
             <div style={{ padding: '15px', background: '#f9f9f9', borderRadius: '8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}><span>Node Info</span><button className="tool-btn" style={{ fontSize: '0.6rem' }} onClick={() => { 
@@ -381,8 +507,8 @@ function App() {
           shadow-camera-far={500}
         />
 
-        <AdaptiveGrid visible={showGrid} setSnapStep={setSnapStep} minZ={minZ} />
-        <AxisLines />
+        <AdaptiveGrid visible={showGrid} setSnapStep={setSnapStep} minZ={minZ + gridOffset} />
+        <AxisLines offset={axisOffset} />
         <SceneController editor={editor} />
         
         {interactionMode === 'CREATE' && activeChainStartId && (
